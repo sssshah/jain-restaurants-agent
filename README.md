@@ -5,6 +5,39 @@ Sam's first agent - built by hand in Node.js, no framework, to learn how agents 
 It adds ONE restaurant at a time to https://jain-restaurants.netlify.app
 following RULES.md exactly.
 
+## Anatomy of this agent
+
+An AI agent = a goal + a loop (observe -> decide -> act) + tools +
+guardrails. Here is each part, in this project:
+
+- **Goal:** Add this restaurant to the Jain Sattvik directory,
+  correctly, following RULES.md - one restaurant at a time.
+- **Senses (observe):** Google Places API (New) lookup - address, phone,
+  website, rating, coordinates, place type; Supabase directory search
+  (duplicate check); the restaurant's own website (menu text, Slice 3).
+- **Brain (decide):** RULES.md encoded as code - lib/classify.js
+  (Jain legend / Vegan name-or-type / meat-scan = Mixed / else human),
+  the dishes options in lib/dishes.js, lib/chainNotes.js, and the four
+  exception stops. The LLM (Muse Spark 1.3 contributor, reasoning
+  effort medium, lib/llm.js) is used ONLY when a menu defeats plain
+  code scanning (scanned-image menu, awkward PDF).
+- **Tools (act):** Places API (lookup, later Place Details + photo),
+  Supabase REST (read for duplicates; write at submit time, Slice 5),
+  plain HTTP fetch (menu download), Meta Model API (the rare LLM call).
+- **Loop (observe -> decide -> act, repeat until done or stopped):**
+  look up the place -> if duplicate / closed / multi-location, STOP
+  with a customer message; else fetch the menu -> classify -> build
+  the listing -> fetch the photo -> (explicit --submit only) write
+  to Supabase -> verify the listing is live -> done. Each step's
+  result decides what the next step is; it is not a fixed script.
+- **Guardrails:** Google quota caps (hard limits in Google Maps
+  Platform > Quotas; on 429/RESOURCE_EXHAUSTED the agent stops with
+  "Google Quota for Map reached, try later."); API keys live only in
+  local .env files, never in code, never committed; Supabase anon key
+  only, never service_role; submitting requires an explicit --submit
+  (default = dry run); exception stops hand unsettled cases to a
+  human instead of guessing.
+
 ## Run the scaffold
 
 ```
