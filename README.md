@@ -5,6 +5,41 @@ Sam's first agent - built by hand in Node.js, no framework, to learn how agents 
 It adds ONE restaurant at a time to https://jain-restaurants.netlify.app
 following RULES.md exactly.
 
+## How it works (the simple picture)
+
+![Architecture diagram](docs/architecture.svg)
+
+In plain English:
+
+1. **A person suggests a restaurant** - its name, city, and any Jain dishes they know.
+2. **The agent finds it on Google** (the Google Places API) - the exact address, phone, website, and map location.
+3. **It checks the directory** (stored in Supabase) - if the restaurant is already listed, closed, or unclear, it stops and shows the person a friendly message instead of guessing.
+4. **It reads the menu** on the restaurant's own website.
+5. **It decides the type** - Pure Veg, Vegan, or Mixed - using simple Jain rules (for example: meat or fish on the menu means Mixed; "vegan" in the name or Google's label means Vegan). If a menu is a hard-to-read picture or PDF, it asks the **Muse Spark** AI to help read it. That is the only place AI is used.
+6. **It builds the listing** - the person's dishes, the standard 4-star rating, and a note about any other locations of the same restaurant in that city.
+7. **It gets the photo** from the restaurant's Google profile.
+8. **The person sees a preview and confirms** - then the listing is saved and appears live on the Jain Sattvik website.
+
+Safety rails are always on: daily Google usage is capped (if the cap is reached, the message is "Google Quota for Map reached, try later."), secret keys never leave this computer, and anything the agent is unsure about is handed to a human.
+
+The same flow as a diagram (this renders on GitHub):
+
+```mermaid
+flowchart TD
+    A["Person suggests a restaurant<br/>(name, city, Jain dishes)"] --> B["Find it on Google<br/>Places API"]
+    B --> C{"Already listed, closed,<br/>or several locations?"}
+    C -- Yes --> S["Stop + show a friendly<br/>message to the person"]
+    C -- No --> D["Read the menu<br/>(restaurant's website)"]
+    D --> E["Decide the type with Jain rules<br/>Pure Veg / Vegan / Mixed"]
+    E -. "menu hard to read" .-> L["Muse Spark AI<br/>helps read the menu"]
+    L -.-> E
+    E --> F["Build the listing<br/>(dishes, 4 stars, notes)"]
+    F --> G["Get the photo<br/>(Google profile)"]
+    G --> H["Person previews + confirms"]
+    H --> I["Save to Supabase"]
+    I --> J["Live on Jain Sattvik"]
+```
+
 ## Anatomy of this agent
 
 An AI agent = a goal + a loop (observe -> decide -> act) + tools +
