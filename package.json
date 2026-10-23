@@ -1,0 +1,13 @@
+{
+  "name": "jain-restaurants-agent",
+  "version": "0.1.0",
+  "description": "Sam's first agent - adds one Jain restaurant at a time to jain-restaurants.netlify.app",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "Samir Shah",
+  "license": "ISC"
+}
