@@ -1,4 +1,5 @@
-// Jain Restaurants Agent - v1, Slice 1: Lookup
+// Jain Restaurants Agent - v1, Phase 1 complete: lookup -> duplicate check
+// -> menu fetch -> classify -> photo -> build listing -> submit (--submit only)
 // Run with no args to check your .env is working:
 //   node index.js
 // Run a lookup (name, city, dishes - dishes come from YOU, not Google):
@@ -12,9 +13,15 @@ const { loadEnv } = require('./lib/loadEnv');
 const { lookupPlace } = require('./lib/lookup');
 const { printDishOptions, normalizeDishes } = require('./lib/dishes');
 const messages = require('./lib/messages');
-const { checkDuplicate } = require('./lib/duplicateCheck');
+const { checkDuplicate, fetchAllRestaurants } = require('./lib/duplicateCheck');
 const { classify } = require('./lib/classify');
 const { testLLM } = require('./lib/llm');
+const { fetchMenu } = require('./lib/menuFetch');
+const { buildListing, printListing } = require('./lib/buildListing');
+const { fetchPhoto } = require('./lib/photo');
+const { uploadPhoto, insertRestaurant, verifyRestaurant } = require('./lib/submit');
+const { buildChainNotes } = require('./lib/chainNotes');
+const { logRun } = require('./lib/runLog');
 
 function printPlace(place, index) {
   const name = place.displayName && place.displayName.text ? place.displayName.text : '(no name)';
@@ -34,7 +41,7 @@ function printPlace(place, index) {
 }
 
 async function main() {
-  console.log('Jain Restaurants Agent - Slice 1: Lookup');
+  console.log('Jain Restaurants Agent - Phase 1 (full flow)');
   console.log('----------------------------------------');
 
   // Step 0: load .env
@@ -54,6 +61,21 @@ async function main() {
   const llmKey = process.env.MODEL_API_KEY;
   console.log(`LLM key loaded: ${llmKey ? `yes (${llmKey.length} characters)` : 'no (fine - the LLM is only for rare messy menus)'}`);
   console.log('');
+
+  // Special mode: node index.js --schema   (print the live directory's real
+  // column names + the dietary_type values in use - public listing data only)
+  if (process.argv[2] === '--schema') {
+    const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_ANON_KEY;
+    if (!url || !key) { console.log('STOP: Supabase env missing (.env.supabase)'); return; }
+    const rows = await fetchAllRestaurants(url, key);
+    console.log(`Directory rows: ${rows.length}`);
+    console.log(`Columns: ${Object.keys(rows[0] || {}).join(', ')}`);
+    const types = [...new Set(rows.map(r => r.dietary_type).filter(Boolean))];
+    console.log(`dietary_type values in use: ${types.join(' | ')}`);
+    const sample = rows[0] || {};
+    console.log(`Sample keys with values: ${Object.entries(sample).map(([k, v]) => `${k}=${String(v).slice(0, 40)}`).join(' ; ')}`);
+    return;
+  }
 
   // Special mode: node index.js --test-llm   (verify the Spark key actually works)
   if (process.argv[2] === '--test-llm') {
@@ -77,6 +99,7 @@ async function main() {
   const name = process.argv[2];
   const city = process.argv[3];
   const dishes = process.argv[4]; // from Sam / the source post - Google does NOT know Jain dishes
+  const extraNotes = (process.argv[5] && process.argv[5] !== '--submit') ? process.argv[5] : ''; // optional facts for Notes (never hours)
 
   const dishChoice = normalizeDishes(dishes);
 
@@ -134,14 +157,30 @@ async function main() {
     return;
   }
 
-  // EXCEPTION STOP #1: multiple matches
+  // EXCEPTION STOP #1: multiple matches - the agent never guesses.
+  // BUT a human can pick: re-run with --pick N and that location proceeds,
+  // with the others going into the listing's notes (chain rule).
+  let otherPlaces = [];
   if (places.length > 1) {
-    console.log(`Found ${places.length} matches:`);
+    const pickEq = process.argv.find(a => a.startsWith('--pick='));
+    const pickIdx = process.argv.indexOf('--pick');
+    const pickNum = pickEq ? parseInt(pickEq.split('=')[1], 10)
+      : (pickIdx > -1 ? parseInt(process.argv[pickIdx + 1], 10) : NaN);
+    if (!pickNum || pickNum < 1 || pickNum > places.length) {
+      console.log(`Found ${places.length} matches:`);
+      console.log('');
+      places.forEach((p, i) => printPlace(p, i));
+      console.log('STOP - EXCEPTION: Multiple matches. The agent will NOT guess which outlet.');
+      console.log(`Customer message (GUI): ${messages.multipleLocations(name, city)}`);
+      console.log('');
+      console.log(`To choose one, re-run the same command with --pick 1 (or 2, ...) added.`);
+      return;
+    }
+    otherPlaces = places.filter((_, i) => i !== pickNum - 1);
+    places = [places[pickNum - 1]];
+    console.log(`Picked location #${pickNum}: ${places[0].formattedAddress}`);
+    console.log(`(${otherPlaces.length} other location(s) will be noted in the listing's Notes, per the chain rule.)`);
     console.log('');
-    places.forEach((p, i) => printPlace(p, i));
-    console.log('STOP - EXCEPTION: Multiple matches. The agent will NOT guess which outlet.');
-    console.log(`Customer message (GUI): ${messages.multipleLocations(name, city)}`);
-    return;
   }
 
   // Happy path: exactly 1 match
@@ -179,23 +218,90 @@ async function main() {
   }
   console.log('');
 
-  // Step 4 (preview): classification proposal from name/type only.
-  // Menu text arrives in Slice 3 - rules get stronger then (meat scan, Jain legend).
+  const place = places[0];
+
+  // Step 4 (Slice 3): fetch the menu from the restaurant's own website
+  console.log('Fetching menu from the restaurant website...');
+  const menu = await fetchMenu(place.websiteUri);
+  console.log(`Menu: ${menu.status} - ${menu.note}`);
+  if (menu.status === 'ok') console.log(`  (menu text: ${menu.menuText.length} characters)`);
+  if (menu.status === 'pdf-only') console.log('  PDF menus are the rare LLM case - v1 hands this to a human instead.');
+  console.log('');
+
+  // Step 5: classify with the REAL menu text (Sam's rules, lib/classify.js)
   const proposal = classify({
-    name: places[0].displayName && places[0].displayName.text,
-    primaryType: places[0].primaryTypeDisplayName && places[0].primaryTypeDisplayName.text,
-    types: places[0].types,
-    menuText: '',
+    name: place.displayName && place.displayName.text,
+    primaryType: place.primaryTypeDisplayName && place.primaryTypeDisplayName.text,
+    types: place.types,
+    menuText: menu.menuText || '',
   });
   if (proposal.dietaryType) {
-    console.log(`Classification proposal: ${proposal.dietaryType} (confidence: ${proposal.confidence})`);
+    const { DIETARY_LABELS } = require('./lib/classify');
+    console.log(`Classification: ${DIETARY_LABELS[proposal.dietaryType] || proposal.dietaryType} (confidence: ${proposal.confidence}) [stored as: ${proposal.dietaryType}]`);
   } else {
-    console.log('Classification proposal: UNKNOWN - exception stop, a human decides (menu fetch in Slice 3 may settle it).');
+    console.log('Classification: UNKNOWN - exception stop, a human decides. Listing preview below is NOT submittable.');
   }
   proposal.evidence.forEach(e => console.log(`  - ${e}`));
-  if (proposal.jainInMenu) console.log('  - Jain menu/legend found in menu');
   console.log('');
-  console.log('Next slice will: fetch the menu, run the full classification rules, then build the listing.');
+
+  // Step 6 (Slice 4): fetch the photo from Google
+  let photo = { status: 'skipped', note: 'No place ID.' };
+  if (place.id) {
+    try { photo = await fetchPhoto(place.id, place.displayName.text, apiKey); }
+    catch (err) { photo = { status: 'failed', note: err.message }; }
+  }
+  console.log(`Photo: ${photo.status} - ${photo.note}`);
+  console.log('');
+
+  // Step 7 (Slice 3b): build the listing and preview it
+  const chainNotes = buildChainNotes(city, otherPlaces, place.websiteUri);
+  const allNotes = [chainNotes, extraNotes].filter(Boolean).map(s => s.replace(/\.+$/, '')).join('. ') + ([chainNotes, extraNotes].some(Boolean) ? '.' : '');
+  const listing = buildListing({ place, city, dishChoice, classification: proposal, notes: allNotes, photoUrl: '' });
+  printListing(listing);
+  console.log('');
+
+  // Audit log: EVERY completed flow writes one line, dry run or submit -
+  // what the senses saw + what the brain decided. See lib/runLog.js.
+  const audit = {
+    name, city, address: place.formattedAddress || null,
+    menuStatus: menu.status, menuUrl: menu.menuUrl || null,
+    classification: proposal.dietaryType || 'UNKNOWN',
+    confidence: proposal.confidence, evidence: proposal.evidence,
+    dishes: dishChoice ? dishChoice.dishesText : null,
+    photo: photo.status,
+  };
+  logRun({ ...audit, outcome: 'preview' });
+
+  // Step 8 (Slice 5): submit - ONLY with an explicit --submit flag
+  const doSubmit = process.argv.includes('--submit');
+  if (!doSubmit) {
+    console.log('DRY RUN - nothing was submitted. To actually add this restaurant, re-run with --submit at the end.');
+    return;
+  }
+  if (!dishChoice) { console.log('STOP: cannot submit - dishes are REQUIRED.'); return; }
+  if (!proposal.dietaryType) { console.log('STOP: cannot submit - classification is UNKNOWN (exception stop).'); return; }
+  const supabaseUrl2 = process.env.SUPABASE_URL, supabaseKey2 = process.env.SUPABASE_ANON_KEY;
+  if (!supabaseUrl2 || !supabaseKey2) { console.log('STOP: Supabase env missing - cannot submit.'); return; }
+  try {
+    if (photo.status === 'ok') {
+      listing.photo_url = await uploadPhoto(supabaseUrl2, supabaseKey2, photo.filePath, photo.filename, photo.contentType);
+      console.log(`Photo uploaded: ${listing.photo_url}`);
+    }
+    const inserted = await insertRestaurant(supabaseUrl2, supabaseKey2, listing);
+    console.log(`Inserted row id: ${inserted && inserted.id}`);
+    const verified = await verifyRestaurant(supabaseUrl2, supabaseKey2, listing.name);
+    if (verified) {
+      console.log(`VERIFIED: "${listing.name}" is now in the directory (id ${verified.id}).`);
+      logRun({ ...audit, outcome: 'submitted-verified', rowId: verified.id });
+    } else {
+      console.log('WARNING: insert returned OK but the read-back did not find it - check Supabase.');
+      logRun({ ...audit, outcome: 'submitted-unverified', rowId: inserted && inserted.id });
+    }
+  } catch (err) {
+    console.log('SUBMIT FAILED - nothing was added.');
+    console.log(`[internal] ${err.message}`);
+    logRun({ ...audit, outcome: 'submit-failed', error: err.message });
+  }
 }
 
 main();

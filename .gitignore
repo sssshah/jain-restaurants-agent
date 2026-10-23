@@ -3,5 +3,6 @@
 .env.llm
 node_modules/
 *.log
+runs.log.jsonl
 .DS_Store
 photos/
