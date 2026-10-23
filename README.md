@@ -9,6 +9,8 @@ following RULES.md exactly.
 
 ![Architecture diagram](docs/architecture.svg)
 
+*This end-to-end flow IS the agent's loop for one restaurant: each box is observe or act, each arrow is a decision made from what the previous step found. The loop runs once per restaurant and ends at "live" - or earlier, at a stop (duplicate, closed, unclear), which is also a decision. It runs again from the top for the next restaurant.*
+
 In plain English:
 
 1. **A person suggests a restaurant** - its name, city, and any Jain dishes they know.
@@ -100,6 +102,12 @@ You should see the hello-world message.
 6. Slice 3: Menu fetch + full classification, then listing builder preview (RULES.md applied)  [next]
 7. Slice 4: Photo fetch from Places (GetPhotoMedia)
 8. Slice 5: Submit + verify (explicit --submit only; default = dry run)
+9. Slice 6: Batch mode - an OUTER loop around the one-restaurant loop:
+   feed a list, the agent processes #1 fully, then #2, then #3...
+   A stop on one restaurant (duplicate / closed / unclear) is recorded
+   in a per-restaurant result log and does NOT kill the batch - the
+   loop moves to the next one and prints a summary at the end.
+   (Watch the daily Google quota cap: batch size is bounded by it.)
 
 ## End state: the public GUI (Phase 2)
 
