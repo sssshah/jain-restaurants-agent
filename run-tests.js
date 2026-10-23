@@ -48,4 +48,17 @@ check('no menu, no signals -> UNKNOWN (human decides)', () => {
   assert.strictEqual(r.needsHuman, true);
 });
 
+console.log('Chain notes (Sam, simplified 2026-10-23): one-line signal, never addresses');
+const { buildChainNotes } = require('./lib/chainNotes');
+check('no other locations -> no chain note', () => assert.strictEqual(buildChainNotes('Chicago', [], 'https://x.com'), ''));
+check('1 other -> singular one-liner, NO address', () => {
+  const note = buildChainNotes('Chicago', [{ formattedAddress: '3719 N Harlem Ave, Chicago, IL 60634, USA' }], 'https://x.com');
+  assert.strictEqual(note, 'Multiple locations in Chicago: 1 other location - see website for all locations');
+  assert.ok(!note.includes('Harlem'), 'note must not contain other locations addresses');
+});
+check('5 others -> same one-liner shape with count', () => {
+  const five = Array.from({ length: 5 }, (_, i) => ({ formattedAddress: `${i} Main St` }));
+  assert.strictEqual(buildChainNotes('New York', five, ''), 'Multiple locations in New York: 5 other locations - see website for all locations');
+});
+
 console.log(`\n${passed} passed, ${failed} failed.`);
