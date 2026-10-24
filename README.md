@@ -125,3 +125,208 @@ LLM), so this same lib/ code will run behind a small server function -
 Netlify Functions is the natural fit (the site is already on Netlify) or a
 Supabase Edge Function. The CLI we are building now is the agent's brain;
 the GUI is just a face on it later. Build the brain first, face second.
+
+## Phase 2 architecture: ONE brain, THREE faces (Sam, 2026-10-23)
+
+There is also an iOS app (jain-restaurants-mobile, Expo/React Native) -
+and it already reads the SAME Supabase project as the website. So the
+integration is NOT "build the agent twice":
+
+  lib/runAgent.js  <-- the brain. Input JSON -> result JSON.
+        ^                    The result shape IS the API contract:
+        |                    { outcome, message, places[], listing,
+        |                      classification, photo }
+        |
+  ONE hosted endpoint (Netlify Function wrapping runAgent;
+  keys live in the function's env, never in any client)
+        ^                    ^
+        |                    |
+  Website "Add" page      iOS app "Add" screen
+  (HTML/JS fetch)         (Expo fetch - same JavaScript world)
+
+Rules that follow from this:
+- Customer-facing texts come from the endpoint (lib/messages.js), so
+  website and app show identical wording - single source of truth.
+- Both clients render the same states natively: form (real dishes
+  first, preset options below), location picker, preview card,
+  exception banners, submit confirm.
+- Photos: the endpoint uploads to the Supabase bucket and returns
+  photo_url; clients only display the URL.
+- PUBLIC submissions insert DIRECTLY, exactly like Sam's own adds
+  today (Sam's decision 2026-10-23: a review queue is overkill -
+  submission volume will be low, and as admin he can edit any
+  listing afterward if needed). No queue in the plan.
+- Local server.js stays the dev harness for both faces (simulator /
+  browser on the same Mac); it is never exposed publicly.
+
+Order of work when Phase 2 starts: (1) freeze the runAgent contract,
+(2) Netlify Function + website page, (3) iOS screen on the same
+endpoint, (4) international country/region handling in the listing builder.
+
+## Integration requirements (Sam, 2026-10-23 night - deep-think item for tomorrow)
+
+- THEME: every new page/dialog must match the existing Jain Sattvik
+site's theme and style (colors, fonts, card look). Sam will judge
+it side by side with the live site. The local web.html is a plain
+functional draft - NOT the design.
+- FORM FACTOR: DECIDED (Sam, 2026-10-23 night, updated same night)
+- a DIALOG (modal), but built as a SEPARATE component from the
+page: its own file(s)/styles/logic, loaded by the site, so the
+page and the dialog can never break each other - the separateness
+is in the code, the dialog is in the experience. It must MATCH
+THE SITE AS IT LOOKS NOW (theme source: the site's own index.html
++ styles.css in ~/Documents/jain-restaurants). Redesign underway
+2026-10-23 night so Sam can test the real look.
+- DO NOT BREAK THE EXISTING SITE: the integration must be isolated
+(its own component / route / styles) so a bug in the add-flow can
+never take down browsing/search. The brain already lives behind
+one endpoint; the face must be equally separable - removable by
+deleting one link/button if anything misbehaves.
+- TESTING: more testing of the local page first (tonight's build)
+before any integration work. Test menu lives in this chat
+(2026-10-23): duplicate, multi-pick, not-found, vegan-by-name,
+preview-only, missing-dishes block, real submit.
+
+## Phase 2 details (Sam's questions, 2026-10-23 evening)
+
+Admin:
+- NO review queue (Sam: overkill - see above). The site's existing
+admin login stays what it already is: Sam's way to EDIT a listing
+after the fact if a public submission needs fixing. Nothing new
+to build for moderation in Phase 2.
+
+When name + city are not enough (ambiguity):
+- Layer 1 (already ours): the endpoint returns FULL addresses, so
+any multi-match shows the user a picker list - the list itself
+reveals "two cities / two countries" cases. A human always picks.
+- Layer 2: one OPTIONAL form field, "State / Country (if needed)" -
+type-ahead from Google. Search is biased by it (Places locationBias);
+blank = no bias. Never a required field.
+- Layer 3: if ONE result comes back but its country differs from
+the directory country the search implied, show its full address
+with a confirm banner ("We found this in Toronto, Canada - is
+this the one?") instead of silently previewing.
+- iOS bonus: the app can offer "near me" - device location biases
+the search automatically.
+- Other countries are NORMAL, not an exception (Sam clarified
+2026-10-23: people WILL add restaurants in other countries; the
+picker list works across countries too). The "USA" rule was only
+a naming standard - US entries say "USA", never "United States"
+(that split Planta into a phantom 10th country). Country comes
+from the place's own address.
+KNOWN CODE ITEM for Phase 2 (plan only, not yet built):
+lib/buildListing.js currently hardcodes country "USA" and maps
+US state abbreviations to full names. International support =
+derive country from the address's last segment (mapping
+"United States" -> "USA"), keep the region/state segment as
+given for non-US addresses, near_city = the searched city.
+Phone already stores international format.
+
+## The loop, as it now stands (2026-10-24)
+
+The diagram Sam shared (2026-10-24) names the loop:
+
+  Observe -> Reason -> Act -> Evaluate -> Repeat as needed
+
+Our loop now matches it, step for step, for one restaurant:
+
+  OBSERVE  - Places lookup (address, phone, website, photo, types),
+             duplicate check against the directory, menu fetch.
+  REASON   - Classification: code rules first (Jain legend / vegan in
+             name-or-type / meat scan = Mixed / vegetarian signals =
+             Pure Veg). When the code rules give up (UNKNOWN) but menu
+             text exists, the LLM judges the messy menu (lib/llmJudge.js)
+             - bounded: only vegetarian/both/vegan/null, must cite
+             evidence, any failure falls back to UNKNOWN.
+  ACT      - Build the listing, upload the photo, insert, read-back.
+  EVALUATE - NEW (lib/evaluate.js), two halves:
+               (a) PRE-SUBMIT: independent checks on the finished
+                   listing (dishes present, classification evidence
+                   real, menu URL is a real page and menu text looks
+                   like a menu, no hours in notes). A fail BLOCKS the
+                   submit - the agent stops its own bad work. Warnings
+                   (no photo, medium confidence) ride along.
+               (b) POST-SUBMIT: the live row is compared field-by-
+                   field with the preview. A mismatch is reported as
+                   'submitted-mismatch', not hidden behind "VERIFIED".
+             The evaluator deliberately does NOT reuse the code it
+             checks (it re-checks the menu URL and menu text itself),
+             so a bug in the fetcher cannot also blind the evaluator.
+             That is the lesson of Forno Rosso, built into the loop.
+  REPEAT   - Bounded, never infinite: the menu fetcher already tries
+             multiple candidate pages; a failed evaluation on one
+             restaurant does not kill a batch (Slice 6); and every
+             evaluation failure is written to runs.log.jsonl, feeding
+             the reviewed learning layer (INCIDENTS.md + regression
+             tests) instead of silently recurring.
+
+## What "the agent decides" means here - and what it does not
+
+The agent DOES decide, within guardrails: which menu page to trust,
+what the classification is, whether its own work passes evaluation,
+whether to retry, and when to stop and hand the decision to a human.
+It does NOT decide to change its own rules, to invent data, or to
+publish work that failed evaluation. That boundary is deliberate:
+judgment inside the loop, rule changes outside it (human-reviewed,
+versioned, tested). The agent gets smarter run by run through
+evaluation findings + the learning layer - not by rewriting itself.
+
+## Sam's standing direction (2026-10-24)
+"Agent should decide; we don't need to think about all the rules."
+Applied as: Muse (and the agent) should decide sensible defaults and
+only bring Sam genuine forks - a real ambiguity, a safety question, a
+trade-off with no safe default. Micro-rules are no longer routed to
+Sam for a ruling; they are decided, logged, and tested.
+
+## The three things every agent needs - and how ours does each (2026-10-24)
+
+An agent can only decide well if it is handed three things. This is
+the whole design of this project, stated plainly:
+
+### 1. A GOAL - "add only places a Jain diner can actually eat at."
+- Set once, by Sam. It never changes run to run.
+- It is why the agent refuses work that does not serve it: a place
+  with no Jain evidence, a duplicate, a permanently closed outlet.
+  Refusing is not failure - it is the goal doing its job.
+- The goal is written in RULES.md and in the agent's purpose: every
+  step below serves it, and no step may override it.
+
+### 2. TOOLS - Google lookup, the directory, the menu.
+- Places API (New): find the place, its address, phone, website,
+  photo, coordinates, and type.
+- Supabase directory: the duplicate check and the final insert.
+- The restaurant's own website: the menu, fetched as plain text.
+- The agent never invents what a tool did not return: a missing phone
+  or website stays blank, never guessed. Tools observe; they do not
+  decide.
+
+### 3. A WAY TO JUDGE GOOD FROM BAD - this is the loop's job.
+- The standard is set once, by Sam: dishes are required; never invent
+  a phone number or website; a listing with no evidence is not good
+  enough; Pure Veg needs menu-text evidence; no opening hours in notes.
+- The LOOP applies that standard on every restaurant, by itself:
+  OBSERVE (lookup, duplicate check, menu) -> REASON (classify; the
+  LLM judges only the messy-menu cases the code rules give up on) ->
+  ACT (build, upload photo, insert) -> EVALUATE (lib/evaluate.js) ->
+  REPEAT as needed (bounded retries; a failure on one restaurant
+  never kills a batch).
+- EVALUATE has two halves:
+  (a) PRE-SUBMIT - independent checks on the finished listing. A fail
+      BLOCKS the submit even when Submit was pressed; the agent stops
+      its own bad work and says why. Warnings (no photo, medium
+      confidence) ride along visibly. The checks deliberately do NOT
+      reuse the code they check, so a bug in the fetcher cannot also
+      blind the evaluator (the Forno Rosso lesson).
+  (b) POST-SUBMIT - the live row is compared field-by-field with the
+      preview. A mismatch is reported, not hidden behind "VERIFIED".
+- What the loop does NOT do: invent the standard, change its own
+  rules, or publish work that failed evaluation. Judgment inside the
+  loop; rule changes outside it (human-reviewed, versioned, tested
+  - see INCIDENTS.md).
+
+## How to read any future change to this project
+Ask which of the three it touches: a new GOAL (Sam decides), a new
+TOOL (a new sense), or a better way to JUDGE (a new check). Most
+improvements from here are the third kind - and that is the point:
+the loop gets better at judging, so fewer new scenarios need new
+rules, and fewer decisions ever reach a human.

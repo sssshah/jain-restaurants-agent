@@ -38,6 +38,16 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { options: DISH_OPTIONS });
       return;
     }
+    if (req.method === 'GET' && req.url === '/dialog') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(fs.readFileSync(path.join(ROOT, 'dialog-test.html'), 'utf8'));
+      return;
+    }
+    if (req.method === 'GET' && req.url === '/add-agent-dialog.js') {
+      res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+      res.end(fs.readFileSync(path.join(ROOT, 'add-agent-dialog.js'), 'utf8'));
+      return;
+    }
     if (req.method === 'GET' && req.url.startsWith('/photos/')) {
       const file = path.basename(req.url.split('?')[0]);
       const fp = path.join(ROOT, 'photos', file);

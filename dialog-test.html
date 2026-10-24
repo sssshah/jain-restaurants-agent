@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dialog Test Harness - NOT the real site</title>
+<!--
+  TEST HARNESS ONLY. This page imitates the Jain Sattvik site's look
+  (values copied from its styles.css) purely to prove that
+  add-agent-dialog.js works on a host page it knows nothing about.
+  The dialog component shares NO code with this page: delete this
+  harness and the component still works; delete the component's
+  <script> tag + the button's data-jra-open and this page is whole.
+-->
+<style>
+  :root{--primary:#ff6b35;--secondary:#f7931e;--bg:#fff8f0;--card:#fff;--text:#2d2d2d;--text-light:#666;--border:#e0e0e0;--shadow:rgba(0,0,0,.1)}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg);color:var(--text)}
+  header{background:linear-gradient(135deg,var(--primary),var(--secondary));color:#fff;padding:20px 0;box-shadow:0 4px 20px var(--shadow)}
+  .header-content{max-width:1200px;margin:0 auto;padding:0 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:15px}
+  .logo{display:flex;align-items:center;gap:12px}
+  .logo-title{font-size:28px;font-weight:bold;letter-spacing:-.5px}
+  .tagline{font-size:13px;opacity:.9}
+  .btn{padding:12px 24px;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;font-family:inherit;display:inline-flex;align-items:center;gap:8px}
+  .btn-primary{background:#fff;color:var(--primary);box-shadow:0 2px 8px rgba(0,0,0,.1)}
+  .btn-primary:hover{background:#fffcf7}
+  .container{max-width:1200px;margin:0 auto;padding:36px 20px 60px}
+  .note{background:#fff3e0;border-left:4px solid var(--secondary);border-radius:8px;padding:16px;font-size:14.5px;margin-bottom:28px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:24px}
+  .restaurant-card{background:var(--card);border-radius:16px;box-shadow:0 4px 20px var(--shadow);border:1px solid var(--border);overflow:hidden}
+  .restaurant-card .ph{height:180px;background:linear-gradient(135deg,#ffe0cc,#ffd3a8);display:flex;align-items:center;justify-content:center;font-size:44px}
+  .restaurant-card .body{padding:20px}
+  .restaurant-card h3{font-size:20px;margin-bottom:4px}
+  .restaurant-card p{font-size:14.5px;color:var(--text-light);margin:3px 0}
+  .dietary-badge{display:inline-flex;align-items:center;gap:6px;background:#e8f5e9;color:#4caf50;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:600;margin-top:12px}
+</style>
+</head>
+<body>
+<header>
+  <div class="header-content">
+    <div class="logo">
+      <div>
+        <div class="logo-title">Jain Sattvik</div>
+        <div class="tagline">Jain Restaurants Finder - test harness copy of the site header</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" data-jra-open>+ Add Restaurant</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="note"><strong>Test harness.</strong> This page only <em>imitates</em> the site so the dialog can be judged side by side with the real design. Click <strong>+ Add Restaurant</strong> (top right). The dialog is one separate file - <code>add-agent-dialog.js</code> - with its own styles and logic; nothing here is shared with it. Make sure the agent server is running (<code>node server.js</code>) or the dialog will say it cannot reach the agent.</div>
+
+  <div class="grid">
+    <div class="restaurant-card">
+      <div class="ph">🍕</div>
+      <div class="body">
+        <h3>Sample Card (site style)</h3>
+        <p>123 Demo St, Chicago, IL 60607, USA</p>
+        <p>Chicago, Illinois, USA</p>
+        <span class="dietary-badge">🥛 Pure Vegetarian</span>
+      </div>
+    </div>
+    <div class="restaurant-card">
+      <div class="ph">🥗</div>
+      <div class="body">
+        <h3>Sample Card (site style)</h3>
+        <p>456 Demo Ave, New York, NY 10001, USA</p>
+        <p>New York, New York, USA</p>
+        <span class="dietary-badge">🌱 Vegan</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="add-agent-dialog.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# netlify.toml - deploy the agent as its own Netlify site (functions only).
+#
+# The site itself is NOT deployed from here; this site exists only to
+# host the agent endpoint. The website dialog calls it via apiBase.
+#
+# Publish dir is a tiny placeholder page (public/) - never the project
+# root, so .env files can never be published by accident. Functions
+# live in netlify/functions; the /api/* redirect lets the dialog keep
+# calling apiBase + '/api/run' and '/api/dish-options' unchanged.
+#
+# Environment variables (set in the Netlify dashboard, never here):
+#   GOOGLE_PLACES_API_KEY, SUPABASE_URL, SUPABASE_ANON_KEY,
+#   MODEL_API_KEY, LLM_MODEL, LLM_EFFORT
+
+[build]
+  functions = "netlify/functions"
+  publish = "public"
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/agent/:splat"
+  status = 200
