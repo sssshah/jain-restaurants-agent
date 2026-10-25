@@ -211,4 +211,153 @@ check('summarizeMatches falls back to alternate field names', () => {
   assert.strictEqual(out[0].city, '');
 });
 
+console.log('International addresses (2026-10-25, T\'s Tantan Tokyo):');
+const { buildListing, deriveLocation } = require('./lib/buildListing');
+const { rowMatches } = require('./lib/duplicateCheck');
+function comp(type, longText, shortText) {
+  return { types: [type], longText, shortText: shortText || longText };
+}
+const tantanPlace = {
+  displayName: { text: "T's Tantan" },
+  formattedAddress: 'Japan, 〒100-0005 Tokyo, Chiyoda City, Marunouchi, 1-chōme−9−１ Gransta Tokyo B1F スクエアゼロエリア改札外',
+  location: { latitude: 35.682428, longitude: 139.76828 },
+  internationalPhoneNumber: '+81 3-3218-8040',
+  websiteUri: 'https://shop.jr-cross.co.jp/eki/spot/detail?code=f15521',
+  googleMapsUri: 'https://maps.google.com/?cid=1',
+  addressComponents: [
+    comp('country', 'Japan', 'JP'),
+    comp('administrative_area_level_1', 'Tokyo'),
+    comp('locality', 'Chiyoda City'),
+    comp('postal_code', '100-0005'),
+  ],
+};
+check('Japan components derive city/state/country (no postal code in city)', () => {
+  assert.deepStrictEqual(deriveLocation(tantanPlace), { isUS: false, city: 'Chiyoda City', state: 'Tokyo', country: 'Japan' });
+});
+check('Japan listing: Japan/Tokyo/Chiyoda City, address kept as returned', () => {
+  const l = buildListing({ place: tantanPlace, city: 'Tokyo', dishChoice: { dishesText: 'Full Jain Menu available' }, classification: { dietaryType: 'vegan' }, notes: '', photoUrl: '' });
+  assert.strictEqual(l.country, 'Japan');
+  assert.strictEqual(l.state, 'Tokyo');
+  assert.strictEqual(l.city, 'Chiyoda City');
+  assert.strictEqual(l.address, tantanPlace.formattedAddress);
+  assert.strictEqual(l.near_city, 'Tokyo');
+});
+const usPlace = {
+  displayName: { text: 'Forno Rosso' },
+  formattedAddress: '1048 W Randolph St, Chicago, IL 60607, USA',
+  location: { latitude: 41.8847, longitude: -87.6477 },
+  internationalPhoneNumber: '+1 312-243-6000',
+  websiteUri: 'https://example.com/',
+  googleMapsUri: 'https://maps.google.com/?cid=2',
+};
+check('US place without components: legacy parse, country USA (unchanged)', () => {
+  const l = buildListing({ place: usPlace, city: 'Chicago', dishChoice: { dishesText: 'Jain Pizza' }, classification: { dietaryType: 'both' }, notes: '', photoUrl: '' });
+  assert.strictEqual(l.country, 'USA');
+  assert.strictEqual(l.city, 'Chicago');
+  assert.strictEqual(l.state, 'Illinois');
+});
+check('US place WITH components: still legacy parse, country USA', () => {
+  const p = { ...usPlace, addressComponents: [comp('country', 'United States', 'US'), comp('administrative_area_level_1', 'Illinois'), comp('locality', 'Chicago')] };
+  assert.deepStrictEqual(deriveLocation(p), { isUS: true });
+  const l = buildListing({ place: p, city: 'Chicago', dishChoice: { dishesText: 'Jain Pizza' }, classification: { dietaryType: 'both' }, notes: '', photoUrl: '' });
+  assert.strictEqual(l.country, 'USA');
+  assert.strictEqual(l.city, 'Chicago');
+  assert.strictEqual(l.state, 'Illinois');
+});
+check('city-state: state kept even when it duplicates city/country (Singapore, site searches by state)', () => {
+  const p = { addressComponents: [comp('country', 'Singapore', 'SG'), comp('administrative_area_level_1', 'Singapore'), comp('locality', 'Singapore')] };
+  assert.deepStrictEqual(deriveLocation(p), { isUS: false, city: 'Singapore', state: 'Singapore', country: 'Singapore' });
+});
+check('missing admin level 1: state empty, city kept (Monaco)', () => {
+  const p = { addressComponents: [comp('country', 'Monaco', 'MC'), comp('locality', 'Monaco')] };
+  assert.deepStrictEqual(deriveLocation(p), { isUS: false, city: 'Monaco', state: '', country: 'Monaco' });
+});
+check('city fallback: no locality -> sublocality used', () => {
+  const p = { addressComponents: [comp('country', 'Japan', 'JP'), comp('administrative_area_level_1', 'Tokyo'), comp('sublocality_level_1', 'Shibuya')] };
+  const loc = deriveLocation(p);
+  assert.strictEqual(loc.city, 'Shibuya');
+  assert.strictEqual(loc.state, 'Tokyo');
+});
+check('no components at all: deriveLocation returns null (legacy path)', () => {
+  assert.strictEqual(deriveLocation({ formattedAddress: 'x' }), null);
+});
+check('components without country: country empty so Evaluate blocks submit', () => {
+  const p = { addressComponents: [comp('locality', 'Nowhere')] };
+  assert.strictEqual(deriveLocation(p).country, '');
+});
+check('T\'s Tantan replay: Chiyoda row + Tokyo search + Chiyoda City place = exact duplicate', () => {
+  const row = { name: "T's Tantan", city: 'Chiyoda', state: 'Tokyo', address: 'Yaesu Central Gate' };
+  assert.strictEqual(rowMatches(row, { wantedName: "T's Tantan", wantedCity: 'Tokyo', wantedStreet: tantanPlace.formattedAddress, placeCity: 'Chiyoda City', placeState: 'Tokyo', useMetro: true }), 'exact');
+});
+check('metro gate: same state alone never matches (Pune vs Mumbai)', () => {
+  const row = { name: 'Same Name', city: 'Pune', state: 'Maharashtra', address: '1 MG Rd' };
+  assert.strictEqual(rowMatches(row, { wantedName: 'Same Name', wantedCity: 'Mumbai', wantedStreet: '2 Main St', placeCity: 'Mumbai', placeState: 'Maharashtra', useMetro: true }), null);
+});
+check('accent-insensitive city: typed Sao Paulo matches stored São Paulo', () => {
+  const row = { name: 'Veg Place', city: 'São Paulo', state: 'São Paulo', address: 'Av Paulista' };
+  assert.strictEqual(rowMatches(row, { wantedName: 'Veg Place', wantedCity: 'Sao Paulo', wantedStreet: 'Av Paulista', placeCity: 'São Paulo', placeState: 'São Paulo', useMetro: true }), 'exact');
+});
+check('US gate unchanged: wrong typed city still finds place-city match (Vatan/Robbinsville)', () => {
+  const row = { name: 'Vatan Indian Vegetarian Cuisine & Bakery', city: 'East Windsor', state: 'New Jersey', address: '761 NJ-33' };
+  assert.strictEqual(rowMatches(row, { wantedName: 'Vatans', wantedCity: 'Robbinsville', wantedStreet: '761 NJ-33, East Windsor', placeCity: 'East Windsor', placeState: '', useMetro: false }), 'fuzzy');
+});
+
+console.log('Photo prefill (2026-10-25): the LLM reads a signboard/menu photo');
+const { parsePhotoReply } = require('./lib/photoRead');
+check('full reply parses: name, city, dishes', () => {
+  const r = parsePhotoReply('{"name": "Mallow", "city": "London", "dishes": ["Coconut Pasanda", "Shan Tofu"]}');
+  assert.strictEqual(r.name, 'Mallow');
+  assert.strictEqual(r.city, 'London');
+  assert.deepStrictEqual(r.dishes, ['Coconut Pasanda', 'Shan Tofu']);
+});
+check('signboard photo: dishes empty, name kept, city null', () => {
+  const r = parsePhotoReply('{"name": "Rustico", "city": null, "dishes": []}');
+  assert.strictEqual(r.name, 'Rustico');
+  assert.strictEqual(r.city, null);
+  assert.deepStrictEqual(r.dishes, []);
+});
+check('non-JSON reply -> all empty (never invent)', () => {
+  const r = parsePhotoReply('I can see a restaurant front.');
+  assert.strictEqual(r.name, null);
+  assert.strictEqual(r.city, null);
+  assert.deepStrictEqual(r.dishes, []);
+});
+check('dishes capped at 5, blank and non-string entries dropped', () => {
+  const r = parsePhotoReply('{"name": "X", "city": "Y", "dishes": ["a", " ", "b", "c", "d", "e", "f", 42]}');
+  assert.deepStrictEqual(r.dishes, ['a', 'b', 'c', 'd', 'e']);
+});
+check('non-string name/city and non-array dishes -> all empty', () => {
+  const r = parsePhotoReply('{"name": 123, "city": ["London"], "dishes": "soup"}');
+  assert.strictEqual(r.name, null);
+  assert.strictEqual(r.city, null);
+  assert.deepStrictEqual(r.dishes, []);
+});
+
+console.log('Photo list picker (2026-10-25): one photo, several restaurants');
+check('list reply parses: every restaurant with dishes + Jain note', () => {
+  const r = parsePhotoReply('{"name": null, "city": "London", "dishes": [], "restaurants": [{"name": "Tofu Vegan", "dishes": [], "notes": "Jain food upon walk-in"}, {"name": "Mallow", "dishes": [], "notes": ""}]}');
+  assert.strictEqual(r.restaurants.length, 2);
+  assert.strictEqual(r.restaurants[0].name, 'Tofu Vegan');
+  assert.strictEqual(r.restaurants[0].notes, 'Jain food upon walk-in');
+  assert.strictEqual(r.restaurants[1].name, 'Mallow');
+  assert.strictEqual(r.restaurants[1].notes, '');
+});
+check('single reply -> restaurants empty', () => {
+  const r = parsePhotoReply('{"name": "Mallow", "city": "London", "dishes": ["Coconut Pasanda"]}');
+  assert.deepStrictEqual(r.restaurants, []);
+});
+check('nameless list entries dropped, non-array restaurants -> empty', () => {
+  const r = parsePhotoReply('{"name": null, "city": null, "dishes": [], "restaurants": [{"dishes": []}, {"name": "  "}, {"name": "Kin Restaurant", "dishes": [], "notes": ""}]}');
+  assert.strictEqual(r.restaurants.length, 1);
+  assert.strictEqual(r.restaurants[0].name, 'Kin Restaurant');
+  assert.deepStrictEqual(parsePhotoReply('{"name": null, "city": null, "dishes": [], "restaurants": "nope"}').restaurants, []);
+});
+check('per-entry dishes capped at 5, notes trimmed and capped', () => {
+  const long = 'x'.repeat(250);
+  const r = parsePhotoReply('{"name": null, "city": null, "dishes": [], "restaurants": [{"name": "X", "dishes": ["a", "b", "c", "d", "e", "f"], "notes": "  Jain upon walk-in  "}, {"name": "Y", "dishes": [], "notes": "' + long + '"}]}');
+  assert.deepStrictEqual(r.restaurants[0].dishes, ['a', 'b', 'c', 'd', 'e']);
+  assert.strictEqual(r.restaurants[0].notes, 'Jain upon walk-in');
+  assert.strictEqual(r.restaurants[1].notes.length, 200);
+});
+
 console.log(`\n${passed} passed, ${failed} failed.`);

@@ -13,14 +13,17 @@ following RULES.md exactly.
 
 In plain English:
 
-1. **A person suggests a restaurant** - its name, city, and any Jain dishes they know.
-2. **The agent finds it on Google** (the Google Places API) - the exact address, phone, website, and map location.
-3. **It checks the directory** (stored in Supabase) - if the restaurant is already listed, closed, or unclear, it stops and shows the person a friendly message instead of guessing.
-4. **It reads the menu** on the restaurant's own website.
-5. **It decides the type** - Pure Veg, Vegan, or Mixed - using simple Jain rules (for example: meat or fish on the menu means Mixed; "vegan" in the name or Google's label means Vegan). If a menu is a hard-to-read picture or PDF, it asks the **Muse Spark** AI to help read it. That is the only place AI is used.
-6. **It builds the listing** - the person's dishes, the standard 4-star rating, and a note about any other locations of the same restaurant in that city.
-7. **It gets the photo** from the restaurant's Google profile.
-8. **The person sees a preview and confirms** - then the listing is saved and appears live on the Jain Sattvik website.
+1. **Optional photo prefill** [PRE-STEP] - before typing anything, the person can upload a photo (a signboard, a menu, or a list of restaurants). One **Muse Spark** vision call reads it and fills in the name, city, and dishes - or offers a picker when the photo lists several. Details: "Photo prefill" and "Photo list picker" below.
+2. **A person suggests a restaurant** - its name, city, and any Jain dishes they know (typed, picked from the photo, or both).
+3. **The agent finds it on Google** [OBSERVE] (the Google Places API) - the exact address, phone, website, and map location.
+4. **It checks the directory** [OBSERVE] (stored in Supabase) - if the restaurant is already listed, closed, or unclear, it stops and shows the person a friendly message instead of guessing.
+5. **It reads the menu** [OBSERVE] on the restaurant's own website.
+6. **It decides the type** [REASON] - Pure Veg, Vegan, or Mixed - using simple Jain rules (for example: meat or fish on the menu means Mixed; "vegan" in the name or Google's label means Vegan). If a menu is a hard-to-read picture or PDF, a second, separate **Muse Spark** call judges it - that and the photo read are the only two places AI is used.
+7. **It builds the listing** [ACT] - the person's dishes, the standard 4-star rating, and a note about any other locations of the same restaurant in that city.
+8. **It gets the photo** [OBSERVE] from the restaurant's Google profile.
+9. **The person sees a preview and confirms** [EVALUATE, then ACT] - the agent checks its own work first (a fail blocks the submit); then the listing is saved and appears live on the Jain Sattvik website (the live row is compared with the preview).
+
+The tags in brackets point to the stage each step belongs to in "The loop, as it now stands" below.
 
 Safety rails are always on: daily Google usage is capped (if the cap is reached, the message is "Google Quota for Map reached, try later."), secret keys never leave this computer, and anything the agent is unsure about is handed to a human.
 
@@ -33,13 +36,16 @@ flowchart TD
     C -- Yes --> S["Stop + show a friendly<br/>message to the person"]
     C -- No --> D["Read the menu<br/>(restaurant's website)"]
     D --> E["Decide the type with Jain rules<br/>Pure Veg / Vegan / Mixed"]
-    E -. "menu hard to read" .-> L["Muse Spark AI<br/>helps read the menu"]
+    E -. "menu hard to read" .-> L["Muse Spark AI<br/>judges the menu"]
     L -.-> E
     E --> F["Build the listing<br/>(dishes, 4 stars, notes)"]
     F --> G["Get the photo<br/>(Google profile)"]
     G --> H["Person previews + confirms"]
     H --> I["Save to Supabase"]
     I --> J["Live on Jain Sattvik"]
+    P["Optional photo prefill<br/>(signboard, menu, or list)"] -. "fills the form" .-> A
+    P -. "one vision call" .-> V["Muse Spark AI<br/>reads the photo"]
+    V -.-> P
 ```
 
 ## Anatomy of this agent
@@ -57,10 +63,12 @@ guardrails. Here is each part, in this project:
   the dishes options in lib/dishes.js, lib/chainNotes.js, and the four
   exception stops. The LLM (Muse Spark 1.3 contributor, reasoning
   effort medium, lib/llm.js) is used ONLY when a menu defeats plain
-  code scanning (scanned-image menu, awkward PDF).
+  code scanning (scanned-image menu, awkward PDF), plus the photo
+  prefill (lib/photoRead.js, below).
 - **Tools (act):** Places API (lookup, later Place Details + photo),
   Supabase REST (read for duplicates; write at submit time, Slice 5),
-  plain HTTP fetch (menu download), Meta Model API (the rare LLM call).
+  plain HTTP fetch (menu download), Meta Model API (two LLM calls:
+  the photo read and the rare menu-judge call).
 - **Loop (observe -> decide -> act, repeat until done or stopped):**
   look up the place -> if duplicate / closed / multi-location, STOP
   with a customer message; else fetch the menu -> classify -> build
@@ -150,6 +158,9 @@ Rules that follow from this:
 - Both clients render the same states natively: form (real dishes
   first, preset options below), location picker, preview card,
   exception banners, submit confirm.
+- Website button label (Sam, 2026-10-25): "Add Restaurant (AI Agent)" -
+  distinct from the site's existing manual Add Restaurant form, so
+  visitors can tell the agent flow apart.
 - Photos: the endpoint uploads to the Supabase bucket and returns
   photo_url; clients only display the URL.
 - PUBLIC submissions insert DIRECTLY, exactly like Sam's own adds
@@ -330,3 +341,46 @@ TOOL (a new sense), or a better way to JUDGE (a new check). Most
 improvements from here are the third kind - and that is the point:
 the loop gets better at judging, so fewer new scenarios need new
 rules, and fewer decisions ever reach a human.
+
+## Photo prefill (optional pre-step, 2026-10-25)
+
+Before typing anything, the dialog offers "Upload photo" at the far
+right of the Restaurant Details line. A photo of a signboard,
+storefront, or menu is downscaled in the browser and sent to POST
+/api/read-photo (server.js locally, the Netlify Function hosted),
+where lib/photoRead.js makes ONE more Muse Spark Contributor call -
+the same model, key, and endpoint as the menu judge - and returns
+{ name, city, dishes }. Each new upload clears the name, city, and
+typed dishes first (Sam, 2026-10-25), so a previous photo's values
+never linger; the read then fills only fields that are still empty
+(typing during the read is respected). If even one field was
+extracted, it fills silently with no
+message (Sam's rule, 2026-10-25); only when the photo yields nothing
+at all does it show "Nothing to extract from photo. Please enter the
+restaurant name, city, and recommended Jain dishes." It never
+submits: the user still reviews, looks up, previews, and submits.
+Same honesty rules as the judge: JSON-only, temperature 0,
+null/empty on any failure, never invents. Cost is one
+user-initiated vision call per upload on a downscaled photo. The
+photo is a public scene (signboard/menu), sent to Meta under the
+contributor tier like menu text. On the hosted endpoint the 10s
+function limit can bite a vision call, as with the menu judge;
+locally there is no such limit.
+
+## Photo list picker (2026-10-25)
+
+The same upload also handles a photo that LISTS several restaurants
+(a screenshot of a list, for example). The one vision call returns
+them all as restaurants[] - each with its name, its dishes if shown,
+and a short Jain note from its description ("Jain food upon walk-in",
+"Inform chef in advance for Jain options"). The dialog shows them as
+a picker instead of guessing which one was meant. Tapping one fills
+the name, the shared city if the photo gave one (otherwise a typed
+city stays), its dishes, and its Jain note into the notes field -
+and resets the dish choice, so nothing leaks from a previous
+restaurant. The normal Look Up -> Preview -> Submit flow then runs
+for that ONE restaurant, and picking consumes the session: there is
+no loop in the dialog, by design (Sam, 2026-10-25). Bulk adds from a
+list photo happen later, once the endpoint is public: Sam hands the
+list image to Muse, and Muse calls the endpoint once per restaurant,
+one at a time.

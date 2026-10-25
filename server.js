@@ -16,6 +16,7 @@ const path = require('node:path');
 const { loadEnv } = require('./lib/loadEnv');
 const { runAgent } = require('./lib/runAgent');
 const { DISH_OPTIONS } = require('./lib/dishes');
+const { readPhoto } = require('./lib/photoRead');
 
 loadEnv();
 const PORT = 3737;
@@ -59,6 +60,22 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       res.writeHead(404); res.end('not found');
+      return;
+    }
+    if (req.method === 'POST' && req.url === '/api/read-photo') {
+      // Photo prefill: a browser-downscaled data URL, so the cap is
+      // 2MB here (the run route stays at 100KB - it carries no image).
+      let body = '';
+      req.on('data', c => { body += c; if (body.length > 2000000) req.destroy(); });
+      req.on('end', async () => {
+        try {
+          const input = JSON.parse(body || '{}');
+          const result = await readPhoto({ image: input.image });
+          sendJson(res, 200, result);
+        } catch (err) {
+          sendJson(res, 500, { name: null, city: null, dishes: [], reason: `Server error: ${err.message}` });
+        }
+      });
       return;
     }
     if (req.method === 'POST' && req.url === '/api/run') {

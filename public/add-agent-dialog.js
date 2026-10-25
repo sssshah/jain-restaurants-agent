@@ -8,8 +8,9 @@
 //  * Host integration = 2 lines: a button with [data-jra-open] (or any
 //    call to JainAgentDialog.open()) + this script tag. Removing both
 //    removes the feature completely - the site is exactly as before.
-//  * It talks ONLY to the agent endpoint (config.apiBase): POST /api/run
-//    and GET /api/dish-options. No keys live here; keys live server-side.
+//  * It talks ONLY to the agent endpoint (config.apiBase): POST /api/run,
+//    GET /api/dish-options, and POST /api/read-photo (photo prefill).
+//    No keys live here; keys live server-side.
 //  * Theme values are copied from the site's own styles.css (2026-10-23)
 //    so the dialog matches the site as it looks now:
 //    primary #ff6b35, secondary #f7931e, accent #c1502e, bg #fff8f0,
@@ -28,7 +29,7 @@
   if (window.JainAgentDialog) return; // never load twice
 
   var config = { apiBase: 'http://localhost:3737' };
-  var state = { pick: null, optionsLoaded: false, allowFuzzy: false };
+  var state = { pick: null, optionsLoaded: false, allowFuzzy: false, photoList: null };
 
   var FALLBACK_DISH_OPTIONS = [
     { code: '1', label: 'Some items on the menu can be made Jain' },
@@ -39,23 +40,23 @@
   var CSS = '\
 .jra-modal{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);z-index:2000;overflow-y:auto;backdrop-filter:blur(4px);font-family:\'Segoe UI\',Tahoma,Geneva,Verdana,sans-serif;color:#2d2d2d}\
 .jra-modal.jra-active{display:flex;align-items:flex-start;justify-content:center;padding:20px;box-sizing:border-box}\
-.jra-content{background:#fff;padding:24px;border-radius:20px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);animation:jraSlideIn .3s ease-out;box-sizing:border-box;margin:auto}\
+.jra-content{background:#fff;padding:20px;border-radius:20px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);animation:jraSlideIn .3s ease-out;box-sizing:border-box;margin:auto}\
 @keyframes jraSlideIn{from{opacity:0;transform:translateY(-30px)}to{opacity:1;transform:translateY(0)}}\
 .jra-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid #e0e0e0}\
 .jra-title{font-size:24px;font-weight:bold;color:#ff6b35;display:flex;align-items:center;gap:12px;margin:0}\
 .jra-close{background:none;border:none;cursor:pointer;color:#666;line-height:1;padding:8px;border-radius:8px;font-size:20px}\
 .jra-close:hover{background:#fff8f0;color:#ff6b35}\
 .jra-note{background:#fff3e0;border-left:4px solid #f7931e;padding:12px 14px;margin:0 0 16px;font-size:14px;display:flex;gap:12px;border-radius:8px;align-items:flex-start}\
-.jra-section{margin-bottom:10px;padding:14px;background:#fffcf7;border-radius:12px}\
-.jra-section-title{font-size:18px;color:#ff6b35;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0}\
+.jra-section{margin-bottom:6px;padding:12px;background:#fffcf7;border-radius:12px}\
+.jra-section-title{font-size:18px;color:#ff6b35;margin:0 0 10px;padding-bottom:6px;border-bottom:2px solid #e0e0e0}.jra-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0;margin-bottom:12px}.jra-section-head .jra-section-title{margin:0;padding:0;border:0}.jra-btn-photo{background:#fff;border:2px solid #ff6b35;color:#ff6b35;padding:8px 14px;font-size:14px;white-space:nowrap;flex-shrink:0}.jra-btn-photo:hover{background:#fff8f0}.jra-btn-photo:disabled{opacity:.55;cursor:wait}\
 .jra-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}\
 .jra-row .jra-group{margin-bottom:0}\
-.jra-group{margin-bottom:12px}.jra-group:last-child{margin-bottom:0}\
+.jra-group{margin-bottom:10px}.jra-group:last-child{margin-bottom:0}\
 .jra-label{display:block;font-weight:600;margin-bottom:8px;font-size:15px}\
 .jra-input,.jra-textarea{width:100%;box-sizing:border-box;padding:12px 16px;border:2px solid #e0e0e0;border-radius:8px;font-size:15px;font-family:inherit;background:#fff;color:#2d2d2d}\
 .jra-input:focus,.jra-textarea:focus{outline:none;border-color:#ff6b35}\
-.jra-radio{display:block;font-weight:400;margin:8px 0;font-size:15px;cursor:pointer}\
-.jra-divider{text-align:center;color:#c1502e;margin:10px 0 4px;font-size:13px;font-weight:600;letter-spacing:.4px}\
+.jra-radio{display:block;font-weight:400;margin:6px 0;font-size:15px;cursor:pointer}\
+.jra-divider{text-align:center;color:#c1502e;margin:8px 0 2px;font-size:13px;font-weight:600;letter-spacing:.4px}\
 .jra-btn{padding:12px 24px;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;font-family:inherit;display:inline-flex;align-items:center;gap:8px;transition:all .3s cubic-bezier(.4,0,.2,1);text-decoration:none}\
 .jra-btn-cta{width:100%;justify-content:center;padding:14px 28px;font-size:16px;background:linear-gradient(135deg,#ff6b35,#f7931e);color:#fff;box-shadow:0 2px 8px rgba(255,107,53,.3)}\
 .jra-btn-cta:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(255,107,53,.4)}\
@@ -121,7 +122,9 @@
           '<div><strong>Important:</strong> Only add restaurants that serve <strong>some food without onion, garlic, potatoes, carrots, and other root vegetables</strong>.</div>' +
         '</div>' +
         '<div class="jra-section">' +
-          '<h3 class="jra-section-title">Find the Restaurant</h3>' +
+          '<div class="jra-section-head"><h3 class="jra-section-title">Restaurant Details</h3><button class="jra-btn jra-btn-photo" id="jra-photo-btn" type="button">Upload photo</button></div>' +
+          '<input type="file" id="jra-photo-input" accept="image/*" style="display:none">' +
+          '<div id="jra-photo-msg"></div>' +
           '<div class="jra-row">' +
             '<div class="jra-group"><label class="jra-label" for="jra-name">Restaurant Name *</label><input class="jra-input" id="jra-name" type="text" placeholder="e.g., Forno Rosso" autocomplete="off"></div>' +
             '<div class="jra-group"><label class="jra-label" for="jra-city">City *</label><input class="jra-input" id="jra-city" type="text" placeholder="e.g., Chicago" autocomplete="off"></div>' +
@@ -180,6 +183,9 @@
   function close() {
     overlay.classList.remove('jra-active');
     document.body.style.overflow = '';
+    // Closing abandons the photo session: a reopen must not offer
+    // a stale list after an unrelated submit.
+    state.photoList = null;
   }
 
   overlay.querySelector('.jra-close').addEventListener('click', close);
@@ -302,6 +308,7 @@
     if (submitBtn) submitBtn.addEventListener('click', function () { run(true); });
     var overrideBtn = $('jra-override');
     if (overrideBtn) overrideBtn.addEventListener('click', function () { state.allowFuzzy = true; run(false); });
+    bindPhotoPicker();
     scrollToResults();
   }
 
@@ -329,6 +336,146 @@
   // restaurant, not this one. Pick/submit re-runs keep it, so the
   // submit run passes the same duplicate check the preview did.
   $('jra-run').addEventListener('click', function () { state.pick = null; state.allowFuzzy = false; run(false); });
+
+  // PHOTO PREFILL (optional pre-step, 2026-10-25): a photo of a
+  // signboard or menu fills the fields above - name, city, dishes.
+  // Each new upload clears those fields first, so a previous photo's
+  // values never linger; the fill still respects typing done while
+  // the read is in flight. Nothing is submitted from here; the user
+  // still reviews, looks up, previews, and submits.
+  function photoMsg(html) {
+    $('jra-photo-msg').innerHTML = html || '';
+  }
+  // Downscale in the browser so the upload stays small (a phone photo
+  // would otherwise blow past the endpoint's body cap).
+  function downscaleImage(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var img = new Image();
+        img.onload = function () {
+          var max = 1568, w = img.width, h = img.height;
+          if (Math.max(w, h) > max) {
+            var s = max / Math.max(w, h);
+            w = Math.round(w * s); h = Math.round(h * s);
+          }
+          var cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = reject;
+        img.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  function readPhotoFile(file) {
+    // A new photo starts fresh (Sam, 2026-10-25): clear the prefill
+    // targets first, so a previous photo's values can never linger
+    // under a new photo's result. The dishes radio is the user's own
+    // pick and the notes are untouched - only the three fields the
+    // photo can fill are reset.
+    $('jra-name').value = '';
+    $('jra-city').value = '';
+    $('jra-dishes').value = '';
+    var btn = $('jra-photo-btn');
+    btn.disabled = true;
+    photoMsg('<div class="jra-msg jra-msg-info">Reading photo...</div>');
+    downscaleImage(file).then(function (dataUrl) {
+      return fetch(config.apiBase + '/api/read-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl }),
+      }).then(function (r) { return r.json(); });
+    }).then(function (d) {
+      // LIST PHOTO: several restaurants in one photo - offer a picker
+      // instead of guessing which one the user meant.
+      if (d && d.restaurants && d.restaurants.length > 1) {
+        state.photoList = { city: d.city || null, restaurants: d.restaurants.map(function (r, i) { return { _id: i, name: r.name, dishes: r.dishes || [], notes: r.notes || '' }; }) };
+        photoMsg('');
+        $('jra-out').innerHTML = renderPhotoPicker(state.photoList.restaurants, { doneLabel: 'Cancel', heading: 'Found ' + state.photoList.restaurants.length + ' restaurants in this photo - pick one to add:' });
+        bindPhotoPicker();
+        scrollToResults();
+        return;
+      }
+      if (d && d.name && !$('jra-name').value.trim()) { $('jra-name').value = d.name; }
+      if (d && d.city && !$('jra-city').value.trim()) { $('jra-city').value = d.city; }
+      var dishes = (d && d.dishes) || [];
+      var typed = $('jra-dishes').value.trim();
+      var radio = overlay.querySelector('input[name="jra-dishopt"]:checked');
+      if (dishes.length && !typed && !radio) { $('jra-dishes').value = dishes.join('; '); }
+      // Sam's rule (2026-10-25): a message ONLY when the photo yields
+      // nothing at all. If even one field was extracted, fill silently
+      // and show no message.
+      if (d && (d.name || d.city || dishes.length)) {
+        photoMsg('');
+      } else {
+        photoMsg('<div class="jra-msg jra-msg-stop">Nothing to extract from photo. Please enter the restaurant name, city, and recommended Jain dishes.</div>');
+      }
+    }).catch(function () {
+      photoMsg('<div class="jra-msg jra-msg-stop">Could not read this photo. Please try again, or fill in the fields.</div>');
+    }).finally(function () { btn.disabled = false; });
+  }
+  $('jra-photo-btn').addEventListener('click', function () { $('jra-photo-input').click(); });
+  $('jra-photo-input').addEventListener('change', function () {
+    var f = $('jra-photo-input').files[0];
+    $('jra-photo-input').value = '';
+    if (f) readPhotoFile(f);
+  });
+
+  // PHOTO LIST PICKER (2026-10-25): one uploaded photo can hold
+  // several restaurants. The picker offers them so the user can
+  // choose ONE to add - one restaurant at a time, like every other
+  // flow in this dialog. Picking consumes the session; there is no
+  // loop. Bulk adds from a list photo happen later, via the public
+  // endpoint (Sam hands Muse the image, Muse calls the endpoint
+  // once per restaurant), not in this dialog.
+  function renderPhotoPicker(remaining, opts) {
+    var html = '<div id="jra-photo-picker"><div class="jra-msg jra-msg-info">' + esc(opts.heading) + '</div>';
+    remaining.forEach(function (r) {
+      html += '<div class="jra-place"><p><strong>' + esc(r.name) + '</strong></p>' +
+        (r.notes ? '<p class="jra-sub">' + esc(r.notes) + '</p>' : '') +
+        '<button class="jra-btn jra-btn-accent" type="button" data-jra-photo-pick="' + r._id + '" style="margin-top:10px">Add this one</button></div>';
+    });
+    html += '<button class="jra-btn" id="jra-photo-done" type="button" style="margin-top:14px;background:#fff;border:2px solid #e0e0e0;color:#2d2d2d">' + esc(opts.doneLabel) + '</button></div>';
+    return html;
+  }
+  function cancelPhotoList() {
+    state.photoList = null;
+    var picker = $('jra-photo-picker');
+    if (picker) picker.remove();
+  }
+  function pickPhotoRestaurant(id) {
+    var list = state.photoList;
+    if (!list) return;
+    var entry = null;
+    list.restaurants.forEach(function (r) { if (r._id === id) entry = r; });
+    if (!entry) return;
+    // One restaurant at a time: picking consumes the session. The
+    // local list reference still holds the entry for filling below.
+    state.photoList = null;
+    // A pick starts a fresh restaurant: overwrite the fields the
+    // photo can fill. City is list-level: if the photo gave one it
+    // wins, otherwise a city already typed stays.
+    $('jra-name').value = entry.name || '';
+    if (list.city) $('jra-city').value = list.city;
+    $('jra-dishes').value = (entry.dishes && entry.dishes.length) ? entry.dishes.join('; ') : '';
+    $('jra-notes').value = entry.notes || '';
+    overlay.querySelectorAll('input[name="jra-dishopt"]').forEach(function (r) { r.checked = false; });
+    var picker = $('jra-photo-picker');
+    if (picker) picker.remove();
+    var n = $('jra-name');
+    if (n && n.scrollIntoView) n.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function bindPhotoPicker() {
+    overlay.querySelectorAll('[data-jra-photo-pick]').forEach(function (b) {
+      b.addEventListener('click', function () { pickPhotoRestaurant(parseInt(b.getAttribute('data-jra-photo-pick'), 10)); });
+    });
+    var done = $('jra-photo-done');
+    if (done) done.addEventListener('click', cancelPhotoList);
+  }
 
   // Host-page hook: any element with [data-jra-open] opens the dialog.
   document.querySelectorAll('[data-jra-open]').forEach(function (elm) {

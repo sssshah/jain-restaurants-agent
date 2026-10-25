@@ -1,8 +1,9 @@
 // agent.js - the hosted endpoint for the Jain Restaurants Agent.
 //
-// ONE function, TWO routes (see netlify.toml redirect /api/*):
+// ONE function, THREE routes (see netlify.toml redirect /api/*):
 //   POST /api/run           -> runAgent(input)  (preview or submit)
 //   GET  /api/dish-options  -> the dishes options from lib/dishes.js
+//   POST /api/read-photo    -> readPhoto({ image }) (dialog prefill)
 //
 // This is the production twin of server.js: same brain (lib/runAgent),
 // same JSON contract, same customer messages. The website dialog and
@@ -30,13 +31,15 @@
 //   failures, so logging silently no-ops here. The durable audit
 //   trail for hosted runs is the Supabase row itself.
 // - Time limit: Netlify functions default to 10s. A full add (lookup
-//   + menu + photo) usually fits, but a slow menu or an LLM-judge
-//   case can exceed it. If timeouts appear in testing, the fix is a
-//   longer limit (Pro plan, 26s) - not a code change here.
+//   + menu + photo) usually fits, but a slow menu, an LLM-judge
+//   case, or a photo read can exceed it. If timeouts appear in
+//   testing, the fix is a longer limit (Pro plan, 26s) - not a code
+//   change here.
 
 const { loadEnv } = require('../../lib/loadEnv');
 const { runAgent } = require('../../lib/runAgent');
 const { DISH_OPTIONS } = require('../../lib/dishes');
+const { readPhoto } = require('../../lib/photoRead');
 
 loadEnv();
 
@@ -71,6 +74,17 @@ exports.handler = async (event) => {
   try {
     if (event.httpMethod === 'GET' && path.includes('dish-options')) {
       return json(200, origin, { options: DISH_OPTIONS });
+    }
+    if (event.httpMethod === 'POST' && path.includes('read-photo')) {
+      // Photo prefill has its own body cap (2MB for a downscaled
+      // image); it must be checked BEFORE the generic run branch.
+      const body = event.body || '{}';
+      if (body.length > 2000000) {
+        return json(413, origin, { name: null, city: null, dishes: [], reason: 'Photo too large.' });
+      }
+      const input = JSON.parse(body);
+      const result = await readPhoto({ image: input.image });
+      return json(200, origin, result);
     }
     if (event.httpMethod === 'POST') {
       const body = event.body || '{}';
