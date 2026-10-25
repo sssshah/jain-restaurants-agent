@@ -1,7 +1,69 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Jain Restaurants Agent</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add a Restaurant - Jain Sattvik</title>
+<!--
+  STANDALONE ADD PAGE (2026-10-25) - the first hosted face of the agent.
+  This page hosts the SAME dialog component as the local test harness
+  (add-agent-dialog.js) - it shares no code with the main site and
+  changes nothing there. Later the main site will host the dialog
+  itself; this page stays as the standalone route.
+
+  HOW IT IS WIRED: the script below is public/add-agent-dialog.js, a
+  COPY of the project-root file. After any dialog change, re-copy it:
+      cp add-agent-dialog.js public/add-agent-dialog.js
+  apiBase '' means same-origin: /api/run resolves against this site
+  and netlify.toml redirects /api/* to the agent function.
+
+  NOTE: submissions here go STRAIGHT into the live directory (no
+  review queue, per Sam's ruling) - the agent's own Evaluate step is
+  the gate, and it refuses listings it cannot verify.
+-->
+<style>
+  :root{--primary:#ff6b35;--secondary:#f7931e;--bg:#fff8f0;--card:#fff;--text:#2d2d2d;--text-light:#666;--border:#e0e0e0;--shadow:rgba(0,0,0,.1)}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:var(--bg);color:var(--text)}
+  header{background:linear-gradient(135deg,var(--primary),var(--secondary));color:#fff;padding:20px 0;box-shadow:0 4px 20px var(--shadow)}
+  .header-content{max-width:1200px;margin:0 auto;padding:0 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:15px}
+  .logo-title{font-size:28px;font-weight:bold;letter-spacing:-.5px}
+  .tagline{font-size:13px;opacity:.9}
+  .btn{padding:12px 24px;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;font-family:inherit;display:inline-flex;align-items:center;gap:8px}
+  .btn-primary{background:#fff;color:var(--primary);box-shadow:0 2px 8px rgba(0,0,0,.1)}
+  .btn-primary:hover{background:#fffcf7}
+  .container{max-width:800px;margin:0 auto;padding:36px 20px 60px}
+  .note{background:#fff3e0;border-left:4px solid var(--secondary);border-radius:8px;padding:16px;font-size:14.5px;margin-bottom:28px;line-height:1.6}
+  .steps{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 4px 20px var(--shadow);padding:24px}
+  .steps h2{font-size:20px;color:var(--primary);margin-bottom:12px}
+  .steps ol{padding-left:20px;line-height:1.8;font-size:15px}
+</style>
+</head>
 <body>
-<p>This site hosts only the Jain Restaurants Agent endpoint (<code>/api/run</code>). There is no web page here by design — the website dialog calls the endpoint.</p>
+<header>
+  <div class="header-content">
+    <div>
+      <div class="logo-title">Jain Sattvik</div>
+      <div class="tagline">Jain Restaurants Finder</div>
+    </div>
+    <button class="btn btn-primary" data-jra-open>+ Add Restaurant</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="note"><strong>Add a restaurant to the directory.</strong> Only add places that serve <strong>some food without onion, garlic, potatoes, carrots, and other root vegetables</strong>. Submissions go straight into the live directory — the agent checks its own work first and refuses listings it cannot verify.</div>
+
+  <div class="steps">
+    <h2>How it works</h2>
+    <ol>
+      <li>Click <strong>+ Add Restaurant</strong> and enter the name and city.</li>
+      <li>Check the preview — the agent shows what it found, including its own checks.</li>
+      <li>If the preview looks right, submit it to the directory.</li>
+    </ol>
+  </div>
+</div>
+
+<script src="add-agent-dialog.js"></script>
+<script>JainAgentDialog.config({ apiBase: '' });</script>
 </body>
 </html>

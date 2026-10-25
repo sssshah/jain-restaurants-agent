@@ -181,4 +181,34 @@ check('namesMatch normalizes raw inputs (no pre-normalizing needed)', () => {
   assert.strictEqual(namesMatch('Vatans', 'Vatan Indian Vegetarian Cuisine & Bakery'), 'fuzzy');
 });
 
+console.log('Fuzzy-duplicate override (2026-10-25):');
+const { shouldStopOnDuplicate, summarizeMatches } = require('./lib/duplicateCheck');
+check('exact match always stops, even with override', () => {
+  assert.strictEqual(shouldStopOnDuplicate([{ _match: 'exact' }], true), true);
+});
+check('exact match stops without override', () => {
+  assert.strictEqual(shouldStopOnDuplicate([{ _match: 'exact' }], false), true);
+});
+check('fuzzy match stops without override', () => {
+  assert.strictEqual(shouldStopOnDuplicate([{ _match: 'fuzzy' }], false), true);
+});
+check('fuzzy match proceeds with override', () => {
+  assert.strictEqual(shouldStopOnDuplicate([{ _match: 'fuzzy' }], true), false);
+});
+check('no matches never stops', () => {
+  assert.strictEqual(shouldStopOnDuplicate([], true), false);
+});
+
+console.log('Duplicate match summary (2026-10-25):');
+check('summarizeMatches maps name/address/city', () => {
+  const out = summarizeMatches([{ name: 'Vatan Indian Vegetarian Cuisine & Bakery', address: '761 NJ-33, East Windsor, NJ 08520, USA', city: 'East Windsor' }]);
+  assert.deepStrictEqual(out, [{ name: 'Vatan Indian Vegetarian Cuisine & Bakery', address: '761 NJ-33, East Windsor, NJ 08520, USA', city: 'East Windsor' }]);
+});
+check('summarizeMatches falls back to alternate field names', () => {
+  const out = summarizeMatches([{ restaurant_name: 'Rustico Goregaon', formatted_address: 'Top Floor, Chandiwala Arcade, Link Rd', city: '' }]);
+  assert.strictEqual(out[0].name, 'Rustico Goregaon');
+  assert.strictEqual(out[0].address, 'Top Floor, Chandiwala Arcade, Link Rd');
+  assert.strictEqual(out[0].city, '');
+});
+
 console.log(`\n${passed} passed, ${failed} failed.`);

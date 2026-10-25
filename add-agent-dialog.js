@@ -21,12 +21,14 @@
 // API:  JainAgentDialog.open() / .close() / .config({ apiBase: '...' })
 // Local test default apiBase: http://localhost:3737 (the agent's server.js)
 // Production: point apiBase at the hosted endpoint (Netlify Function).
+// Hosted standalone copy: public/add-agent-dialog.js - re-copy after
+// any dialog change: cp add-agent-dialog.js public/add-agent-dialog.js
 
 (function () {
   if (window.JainAgentDialog) return; // never load twice
 
   var config = { apiBase: 'http://localhost:3737' };
-  var state = { pick: null, optionsLoaded: false };
+  var state = { pick: null, optionsLoaded: false, allowFuzzy: false };
 
   var FALLBACK_DISH_OPTIONS = [
     { code: '1', label: 'Some items on the menu can be made Jain' },
@@ -44,15 +46,16 @@
 .jra-close{background:none;border:none;cursor:pointer;color:#666;line-height:1;padding:8px;border-radius:8px;font-size:20px}\
 .jra-close:hover{background:#fff8f0;color:#ff6b35}\
 .jra-note{background:#fff3e0;border-left:4px solid #f7931e;padding:12px 14px;margin:0 0 16px;font-size:14px;display:flex;gap:12px;border-radius:8px;align-items:flex-start}\
-.jra-section{margin-bottom:14px;padding:18px;background:#fffcf7;border-radius:12px}\
+.jra-section{margin-bottom:10px;padding:14px;background:#fffcf7;border-radius:12px}\
 .jra-section-title{font-size:18px;color:#ff6b35;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid #e0e0e0}\
 .jra-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}\
+.jra-row .jra-group{margin-bottom:0}\
 .jra-group{margin-bottom:12px}.jra-group:last-child{margin-bottom:0}\
 .jra-label{display:block;font-weight:600;margin-bottom:8px;font-size:15px}\
 .jra-input,.jra-textarea{width:100%;box-sizing:border-box;padding:12px 16px;border:2px solid #e0e0e0;border-radius:8px;font-size:15px;font-family:inherit;background:#fff;color:#2d2d2d}\
 .jra-input:focus,.jra-textarea:focus{outline:none;border-color:#ff6b35}\
 .jra-radio{display:block;font-weight:400;margin:8px 0;font-size:15px;cursor:pointer}\
-.jra-divider{text-align:center;color:#999;margin:10px 0 4px;font-size:13px;letter-spacing:.4px}\
+.jra-divider{text-align:center;color:#c1502e;margin:10px 0 4px;font-size:13px;font-weight:600;letter-spacing:.4px}\
 .jra-btn{padding:12px 24px;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;font-family:inherit;display:inline-flex;align-items:center;gap:8px;transition:all .3s cubic-bezier(.4,0,.2,1);text-decoration:none}\
 .jra-btn-cta{width:100%;justify-content:center;padding:14px 28px;font-size:16px;background:linear-gradient(135deg,#ff6b35,#f7931e);color:#fff;box-shadow:0 2px 8px rgba(255,107,53,.3)}\
 .jra-btn-cta:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(255,107,53,.4)}\
@@ -143,6 +146,15 @@
 
   var $ = function (id) { return overlay.querySelector('#' + id); };
 
+  // Sam's UX rule (2026-10-25): results render BELOW the form inside
+  // this scrollable dialog - after every run, scroll them into view so
+  // the user sees the message and its action button instead of having
+  // to discover it by scrolling down.
+  function scrollToResults() {
+    var out = $('jra-out');
+    if (out && out.scrollIntoView) out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function renderDishOptions(options) {
     $('jra-dish-options').innerHTML = options.map(function (o) {
       return '<label class="jra-radio"><input type="radio" name="jra-dishopt" value="' + esc(o.code) + '"> ' + esc(o.label) + '</label>';
@@ -183,6 +195,7 @@
       dishesInput: typed || (radio ? radio.value : ''),
       notes: $('jra-notes').value.trim(),
       pick: state.pick,
+      allowFuzzy: !!state.allowFuzzy,
       submit: !!submit,
     };
   }
@@ -258,8 +271,24 @@
       }
     } else {
       out.push('<div class="jra-msg jra-msg-stop">' + esc(res.message || 'Something stopped the process.') + '</div>');
-      if (res.outcome === 'duplicate' && res.places && res.places[0]) {
-        out.push('<div class="jra-place"><p><strong>Already listed:</strong> ' + esc(res.places[0].name) + '</p><p>' + esc(res.places[0].address) + '</p></div>');
+      if (res.outcome === 'duplicate') {
+        // Show the EXISTING listing(s) that matched - not the place just
+        // picked (the old card labeled the candidate as "Already
+        // listed"). Fuzzy = "May already be listed" (uncertain);
+        // exact = "Already listed" (certain). Falls back to the picked
+        // place only if the backend sent no matched rows.
+        var listed = (res.matchedListings && res.matchedListings.length) ? res.matchedListings : (res.places || []);
+        listed.forEach(function (m) {
+          var where = [m.address, m.city].filter(function (s) { return s; }).join(', ');
+          out.push('<div class="jra-place"><p><strong>' + (res.fuzzyOnly ? 'May already be listed:' : 'Already listed:') + '</strong> ' + esc(m.name) + '</p>' + (where ? '<p>' + esc(where) + '</p>' : '') + '</div>');
+        });
+      }
+      // Fuzzy stops are overridable: the match may be wrong (similar
+      // name, different restaurant). Exact stops are not - same name +
+      // same city is the same place. The override re-runs with
+      // allowFuzzy; the preview then shows the real place before submit.
+      if (res.outcome === 'duplicate' && res.fuzzyOnly) {
+        out.push('<button class="jra-btn jra-btn-accent" id="jra-override" type="button" style="margin-top:14px">No, this is a different restaurant — continue anyway</button>');
       }
     }
     if (res.logs && res.logs.length) out.push('<div class="jra-log">' + esc(res.logs.join('\n')) + '</div>');
@@ -271,6 +300,9 @@
     });
     var submitBtn = $('jra-submit');
     if (submitBtn) submitBtn.addEventListener('click', function () { run(true); });
+    var overrideBtn = $('jra-override');
+    if (overrideBtn) overrideBtn.addEventListener('click', function () { state.allowFuzzy = true; run(false); });
+    scrollToResults();
   }
 
   function run(submit) {
@@ -278,6 +310,7 @@
     var runBtn = $('jra-run');
     runBtn.disabled = true;
     $('jra-out').innerHTML = '<div class="jra-working"><div class="jra-spinner"></div>Working - looking it up on Google, checking the directory, fetching the menu and photo...</div>';
+    scrollToResults();
     fetch(config.apiBase + '/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -287,11 +320,15 @@
       .then(render)
       .catch(function () {
         $('jra-out').innerHTML = '<div class="jra-msg jra-msg-stop">Could not reach the agent. Please try again in a few minutes.</div>';
+        scrollToResults();
       })
       .finally(function () { runBtn.disabled = false; });
   }
 
-  $('jra-run').addEventListener('click', function () { state.pick = null; run(false); });
+  // A new search resets the override: it belonged to the previous
+  // restaurant, not this one. Pick/submit re-runs keep it, so the
+  // submit run passes the same duplicate check the preview did.
+  $('jra-run').addEventListener('click', function () { state.pick = null; state.allowFuzzy = false; run(false); });
 
   // Host-page hook: any element with [data-jra-open] opens the dialog.
   document.querySelectorAll('[data-jra-open]').forEach(function (elm) {
@@ -301,6 +338,9 @@
   window.JainAgentDialog = {
     open: open,
     close: close,
-    config: function (opts) { if (opts && opts.apiBase) config.apiBase = String(opts.apiBase).replace(/\/$/, ''); },
+    // '' means same-origin: the hosted standalone page calls
+    // config({ apiBase: '' }) so /api/* resolves against the site
+    // itself (Netlify redirects /api/* to the function).
+    config: function (opts) { if (opts && 'apiBase' in opts) config.apiBase = String(opts.apiBase).replace(/\/$/, ''); },
   };
 })();
