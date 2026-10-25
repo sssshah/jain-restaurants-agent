@@ -147,3 +147,81 @@ UI claims it means. Text Search answers "what is relevant to these
 words near here", not "all locations of this restaurant". The
 picker's label was a claim the data did not support - so the data
 must be filtered to the claim, not the other way around.
+
+---
+
+## 2026-10-25 - T's Tantan, Tokyo: a missed duplicate + a USA stamp on Japan
+
+**What happened:** Sam searched "Vegan" in Tokyo. The agent
+previewed T's Tantan (Tokyo Station, phone +81332188040) with the
+Submit button enabled - even though T's Tantan is already in the
+directory (Chiyoda, Tokyo, Japan, phone +81332188040). The preview
+card also showed the wrong geography: country "USA", city
+"〒100-0005 Tokyo" (a postal code glued to the city), state
+"Chiyoda" (a ward fragment, not a prefecture). Nothing was
+submitted (the run stopped at preview), but both the safety net
+and the listing fields were wrong.
+
+**Root causes (two, same run):**
+- `lib/buildListing.js` hardcoded `country: 'USA'` and parsed
+  city/state by splitting the formatted address on commas. That
+  works for "Street, City, ST ZIP, USA" and fails everywhere else:
+  Japan's formatted address leads with the country and the postal
+  code, so the "city" segment came out as "〒100-0005 Tokyo".
+- The duplicate gate compared cities for exact equality. The
+  stored row says city Chiyoda, Sam searched Tokyo, and the parsed
+  place city was "〒100-0005 Tokyo" - three different strings for
+  one place. The name matched exactly; the city gate vetoed it.
+  A lookup against the directory card and against Google's
+  structured record confirmed Sam's manual entry was CORRECT
+  (Chiyoda, Tokyo, Japan, same phone) - the agent's parsing and
+  gate were wrong, not his data.
+
+**Fixes (same day):**
+- `lib/lookup.js` now requests `places.addressComponents` and sets
+  `languageCode: 'en'` (English preferred; Google falls back to
+  the local language where English is unavailable). The address
+  field keeps the formatted string as returned - multilingual
+  there is fine; the components feed city/state/country only.
+- `lib/buildListing.js` gains `deriveLocation`: US places (and
+  places with no components at all) use the legacy parse,
+  byte-for-byte unchanged, country exactly "USA". Everywhere
+  else, country/state/city come from the components, with a city
+  fallback chain (locality -> sublocality -> admin level 2 ->
+  admin level 1). State is kept whenever admin level 1 exists,
+  even when it duplicates the city or country (Singapore): the
+  site searches by state, so a blank state would hide the
+  listing from state search (Sam's correction after the first
+  test run, which had dropped such states). Only a genuinely
+  missing admin level 1 (Monaco) yields an empty state.
+  Components with no country yield country '' so Evaluate's
+  no-country check blocks the submit instead of stamping a
+  wrong country.
+- `lib/duplicateCheck.js` gains the METRO rule (non-US only):
+  the gate also passes when the typed or place city matches the
+  row's state, or the row's city matches the place's state
+  (Chiyoda row + Tokyo search = same metro). State equality
+  alone never passes (Pune vs Mumbai, both Maharashtra, still
+  pass through). City comparison is now accent-insensitive
+  (Sao Paulo matches São Paulo) and ignores a trailing
+  " City" (Chiyoda City matches Chiyoda). The gate's pure core
+  is extracted as `rowMatches` so it is unit-testable with no
+  network. The US gate is unchanged.
+- The phone-as-second-signal idea was considered and left OUT:
+  chains can share one central number across outlets, and the
+  metro rule already fixes this case. It can be added later if
+  a miss ever needs it.
+
+**Regression tests:** `run-tests.js` - the T's Tantan replay
+(Chiyoda row + Tokyo search = exact duplicate), the Japan
+derivation, the US control (with and without components),
+Singapore, Monaco, the sublocality fallback, the missing-
+country case, the Pune/Mumbai state-alone case, the São Paulo
+accent case, and the unchanged Vatan/Robbinsville US gate.
+
+**Lesson:** never parse a formatted string when the API offers
+the structured form - the string's layout is a display choice
+that varies by country, while the components' labels mean the
+same thing everywhere. And "city" is not one level worldwide:
+wards, suburbs, and city-states all break a city-only gate, so
+the gate has to compare at metro level, not just city level.
