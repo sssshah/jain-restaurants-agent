@@ -269,3 +269,35 @@ Browns' note must read in full.
 summary, not the text. If the user needs to SEE what the photo
 said, ask for the text itself and cap the length instead of asking
 for brevity.
+
+---
+
+## 2026-10-25 - An apostrophe in a prompt string broke the whole deployed function
+
+**What happened:** After the photo-notes fix was deployed, the same
+list photo returned "Nothing to extract" three times in a row.
+Worse, the failure was not limited to photo reads: the syntax
+error sat in a file the function requires at startup, so every
+route on the deployed endpoint (/api/run, /api/dish-options,
+/api/read-photo) returned 500 until fixed.
+
+**Root cause:** The new prompt text said "the entry's full
+description text" inside a single-quoted JavaScript string. The
+apostrophe in "entry's" ended the string; Node reported
+`SyntaxError: Unexpected identifier 's'` at require time. The edit
+was read back after being made, but the read-back did not catch
+the quote termination, and no test run happened before commit +
+deploy - yet `node run-tests.js` requires this file and would
+have failed loudly on the syntax error.
+
+**Fix (same day):** Reworded to "the full description text of the
+entry" - no apostrophe. Verified by read-back of the prompt line;
+the deploy-time check is a test run before commit (see Lesson).
+
+**Lesson:** A one-word edit to a string literal can break the whole
+function, and read-back alone does not catch it. Before every
+commit touching lib/, run `node run-tests.js` (it requires the lib
+files, so a syntax error fails fast) - no exceptions, even for
+"docs-only-looking" prompt edits. And: prompt strings in
+single-quoted JS must never contain apostrophes; prefer rewording
+over escaping.
