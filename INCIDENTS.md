@@ -225,3 +225,47 @@ that varies by country, while the components' labels mean the
 same thing everywhere. And "city" is not one level worldwide:
 wards, suburbs, and city-states all break a city-only gate, so
 the gate has to compare at metro level, not just city level.
+
+---
+
+## 2026-10-25 - List-photo notes dropped the description (123V Browns lost "Vegan sushi concept")
+
+**What happened:** On the deployed endpoint, the London list photo
+produced a 7-entry picker. The notes kept only the Jain fragment of
+each description: 123V Browns showed "Inform in advance for Jain
+options" and dropped "Vegan sushi concept by Gauthier's chef.
+Absolutely must visit". The same trimming hit every entry (Tofu
+Vegan lost "Chinese awesomeness", Kin lost its cafe description).
+Nothing wrong was submitted (nothing was picked), but the picker
+showed the user less than the photo said.
+
+**Root cause:** `lib/photoRead.js` told the model to return "a short
+Jain-relevant note from its description". The model obeyed
+literally: it distilled each description down to its Jain
+instruction and discarded the cuisine description and
+recommendation around it.
+
+**Fix (same day):**
+- The prompt now asks for the entry's FULL description text as its
+  note, including the Jain instruction and any cuisine description
+  or recommendation; "" only when the entry has no description
+  text at all.
+- Dishes are now "food items or specialties named for that
+  restaurant (e.g. "Vegan Sushi")", so a named specialty lands in
+  dishes as well as in the note.
+- What did NOT change: notes still never carry addresses, phone
+  numbers, or location counts, and the 200-character cap in
+  `parsePhotoReply` still applies (all seven entries' full texts
+  fit under it).
+- README's "Photo list picker" section updated to the new rule.
+
+**Verification:** prompt wording is not unit-testable (the parser
+already preserves whatever note the model returns, up to the cap),
+so no new test was added. Verification is a live re-upload of the
+same list photo on the deployed endpoint after redeploy: 123V
+Browns' note must read in full.
+
+**Lesson:** when you ask a model for "a short note", you get a
+summary, not the text. If the user needs to SEE what the photo
+said, ask for the text itself and cap the length instead of asking
+for brevity.

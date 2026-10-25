@@ -372,8 +372,9 @@ locally there is no such limit.
 The same upload also handles a photo that LISTS several restaurants
 (a screenshot of a list, for example). The one vision call returns
 them all as restaurants[] - each with its name, its dishes if shown,
-and a short Jain note from its description ("Jain food upon walk-in",
-"Inform chef in advance for Jain options"). The dialog shows them as
+and its full description text as its note (Sam, 2026-10-25: the note
+used to keep only the Jain fragment and dropped the rest - 123V Browns
+lost "Vegan sushi concept"). The dialog shows them as
 a picker instead of guessing which one was meant. Tapping one fills
 the name, the shared city if the photo gave one (otherwise a typed
 city stays), its dishes, and its Jain note into the notes field -
