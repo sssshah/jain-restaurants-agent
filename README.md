@@ -161,6 +161,15 @@ Rules that follow from this:
 - Website button label (Sam, 2026-10-25): "Add Restaurant (AI Agent)" -
   distinct from the site's existing manual Add Restaurant form, so
   visitors can tell the agent flow apart.
+- Admin buttons (Sam, 2026-10-25): keep BOTH buttons visible for
+  admin - the existing manual Add Restaurant button AND the new
+  "Add Restaurant (AI Agent)" button. The agent dialog must not
+  replace, hide, or break the manual form.
+- Post-insert behavior (Sam, 2026-10-25): after a successful
+  insert, the agent dialog must CLOSE, matching the manual Add
+  Restaurant dialog. (The standalone dialog today stays open with
+  a success banner + directory link; the integrated version
+  replicates the manual dialog's close-on-success instead.)
 - Photos: the endpoint uploads to the Supabase bucket and returns
   photo_url; clients only display the URL.
 - PUBLIC submissions insert DIRECTLY, exactly like Sam's own adds
@@ -385,3 +394,13 @@ no loop in the dialog, by design (Sam, 2026-10-25). Bulk adds from a
 list photo happen later, once the endpoint is public: Sam hands the
 list image to Muse, and Muse calls the endpoint once per restaurant,
 one at a time.
+
+## Abandoned dialog resets (2026-10-25)
+
+Closing the dialog without submitting discards the entry: name, city,
+dishes, notes, dish choice, preview, messages, and photo state are
+all cleared, and a lookup or photo read still in flight is ignored
+when it lands, so a reopen always starts fresh. This holds for every
+close path (X button, Escape, clicking outside). A successful submit
+is unaffected: the standalone dialog keeps its success banner, and
+the site copy keeps its confirmation plus automatic close.

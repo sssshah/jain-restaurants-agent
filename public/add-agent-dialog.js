@@ -30,6 +30,10 @@
 
   var config = { apiBase: 'http://localhost:3737' };
   var state = { pick: null, optionsLoaded: false, allowFuzzy: false, photoList: null };
+  // Every lookup/photo read takes a token; closing the dialog (or
+  // starting a newer run) invalidates older ones, so a late response
+  // from an abandoned session can never restore old content.
+  var runToken = 0;
 
   var FALLBACK_DISH_OPTIONS = [
     { code: '1', label: 'Some items on the menu can be made Jain' },
@@ -181,11 +185,21 @@
     var n = $('jra-name'); if (n) n.focus();
   }
   function close() {
+    // Abandoning the dialog discards the entry: a reopen starts fresh.
+    // Previously close only hid the overlay (plus the photo list), so
+    // every typed value, preview, and message came back on reopen.
+    runToken++;
+    ['jra-name', 'jra-city', 'jra-dishes', 'jra-notes', 'jra-photo-input'].forEach(function (id) { $(id).value = ''; });
+    overlay.querySelectorAll('input[name="jra-dishopt"]').forEach(function (radio) { radio.checked = false; });
+    $('jra-out').innerHTML = '';
+    $('jra-run').disabled = false;
+    $('jra-photo-btn').disabled = false;
+    photoMsg('');
+    state.pick = null;
+    state.allowFuzzy = false;
+    state.photoList = null;
     overlay.classList.remove('jra-active');
     document.body.style.overflow = '';
-    // Closing abandons the photo session: a reopen must not offer
-    // a stale list after an unrelated submit.
-    state.photoList = null;
   }
 
   overlay.querySelector('.jra-close').addEventListener('click', close);
@@ -313,6 +327,7 @@
   }
 
   function run(submit) {
+    var token = ++runToken;
     var payload = collectPayload(submit);
     var runBtn = $('jra-run');
     runBtn.disabled = true;
@@ -324,12 +339,13 @@
       body: JSON.stringify(payload),
     })
       .then(function (r) { return r.json(); })
-      .then(render)
+      .then(function (res) { if (token === runToken) render(res); })
       .catch(function () {
+        if (token !== runToken) return;
         $('jra-out').innerHTML = '<div class="jra-msg jra-msg-stop">Could not reach the agent. Please try again in a few minutes.</div>';
         scrollToResults();
       })
-      .finally(function () { runBtn.disabled = false; });
+      .finally(function () { if (token === runToken) runBtn.disabled = false; });
   }
 
   // A new search resets the override: it belonged to the previous
@@ -372,6 +388,7 @@
     });
   }
   function readPhotoFile(file) {
+    var token = ++runToken;
     // A new photo starts fresh (Sam, 2026-10-25): clear the prefill
     // targets first, so a previous photo's values can never linger
     // under a new photo's result. The dishes radio is the user's own
@@ -390,6 +407,7 @@
         body: JSON.stringify({ image: dataUrl }),
       }).then(function (r) { return r.json(); });
     }).then(function (d) {
+      if (token !== runToken) return;
       // LIST PHOTO: several restaurants in one photo - offer a picker
       // instead of guessing which one the user meant.
       if (d && d.restaurants && d.restaurants.length > 1) {
@@ -415,8 +433,9 @@
         photoMsg('<div class="jra-msg jra-msg-stop">Nothing to extract from photo. Please enter the restaurant name, city, and recommended Jain dishes.</div>');
       }
     }).catch(function () {
+      if (token !== runToken) return;
       photoMsg('<div class="jra-msg jra-msg-stop">Could not read this photo. Please try again, or fill in the fields.</div>');
-    }).finally(function () { btn.disabled = false; });
+    }).finally(function () { if (token === runToken) btn.disabled = false; });
   }
   $('jra-photo-btn').addEventListener('click', function () { $('jra-photo-input').click(); });
   $('jra-photo-input').addEventListener('change', function () {
