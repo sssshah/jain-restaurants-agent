@@ -404,3 +404,52 @@ storage round trip. The comparison's job is to catch a wrong row,
 not a re-spelled number - tolerance belongs in the checker, and
 the tolerance must be small enough that a genuinely different
 place still fails.
+
+---
+
+## 2026-10-27 - Re-submit failed at photo upload: the same storage filename collided with the first insert (Crepe Bistro, Santa Clara)
+
+**What happened:** After the incident #8 fix, Sam deleted the
+Crepe Bistro row as admin (the duplicate check then searched 213
+listings) and re-submitted it through the dialog. Lookup, menu,
+classification (Vegan/high), and the duplicate check were all
+green, but Submit failed: "Photo upload error 400" with a
+Supabase 403, "new row violates row-level security policy".
+Nothing was inserted.
+
+**Root cause:** `uploadPhoto` in `lib/submit.js` uploaded to a
+storage path built only from the restaurant slug
+(`crepes-bistro.jpg`), with `x-upsert: true`. The first insert's
+photo object was still in the bucket (the row delete does not
+remove it), so the second upload was an overwrite - which
+Supabase executes as an UPDATE on the storage object. The bucket
+has an INSERT policy for the anon key (the first upload worked)
+but no UPDATE policy, so the overwrite was rejected with 403.
+The deploy that morning had not touched `submit.js`; the
+collision, not the code change, was the trigger. Any re-submit
+of any restaurant would have hit the same wall.
+
+**Fix (same day, Sam approved):**
+- `lib/submit.js` gains `uniquePhotoName`: the storage name is
+  now the slug plus a millisecond timestamp before the
+  extension (`crepes-bistro-1700000000000.jpg`), so every
+  upload is a fresh INSERT and can never collide with an old
+  object. The local filename, the photo URL shape, and the
+  upsert header are unchanged; the stale first object stays in
+  the bucket as a harmless orphan.
+- No dashboard or policy change is needed, and the bucket
+  delete Sam was about to do is no longer required.
+
+**Regression tests:** `run-tests.js` - the suffix lands before
+the extension, a folder prefix is kept, extensionless names
+still work, and different timestamps give different names.
+
+**Verification (after deploy):** re-submit Crepe Bistro through
+the dialog with no bucket delete first - Submit must succeed
+with outcome `submitted` (which also proves the incident #8
+tolerance live), and the directory must be back to 214.
+
+**Lesson:** a deterministic storage name plus upsert is a
+collision waiting for the first re-submit. Storage writes that
+must always succeed need a unique name per write; never rely on
+overwrite permission you have not verified exists.

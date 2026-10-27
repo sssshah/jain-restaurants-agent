@@ -378,4 +378,15 @@ check('per-entry dishes capped at 10, notes trimmed and capped', () => {
   assert.strictEqual(r.restaurants[1].notes.length, 200);
 });
 
+console.log('Photo upload names (incident #9, 2026-10-27): every upload gets a fresh storage name');
+const { uniquePhotoName } = require('./lib/submit');
+check('timestamp suffix goes before the extension, folder prefix kept', () => {
+  assert.strictEqual(uniquePhotoName('crepes-bistro.jpg', 1700000000000), 'crepes-bistro-1700000000000.jpg');
+  assert.strictEqual(uniquePhotoName('photos/crepes-bistro.png', 5), 'photos/crepes-bistro-5.png');
+  assert.strictEqual(uniquePhotoName('photo', 5), 'photo-5');
+});
+check('different timestamps give different storage names', () => {
+  assert.notStrictEqual(uniquePhotoName('crepes-bistro.jpg', 1), uniquePhotoName('crepes-bistro.jpg', 2));
+});
+
 console.log(`\n${passed} passed, ${failed} failed.`);
