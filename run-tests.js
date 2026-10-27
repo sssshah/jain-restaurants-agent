@@ -322,9 +322,15 @@ check('non-JSON reply -> all empty (never invent)', () => {
   assert.strictEqual(r.city, null);
   assert.deepStrictEqual(r.dishes, []);
 });
-check('dishes capped at 5, blank and non-string entries dropped', () => {
-  const r = parsePhotoReply('{"name": "X", "city": "Y", "dishes": ["a", " ", "b", "c", "d", "e", "f", 42]}');
-  assert.deepStrictEqual(r.dishes, ['a', 'b', 'c', 'd', 'e']);
+check('dishes capped at 10, blank and non-string entries dropped', () => {
+  const r = parsePhotoReply('{"name": "X", "city": "Y", "dishes": ["a", " ", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", 42]}');
+  assert.deepStrictEqual(r.dishes, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
+});
+check('Crepe Bistro replay (2026-10-27): all 7 ordered items survive the cap', () => {
+  const r = parsePhotoReply('{"name": "Crepe Bistro", "city": "Santa Clara", "dishes": ["Jain Crepe", "Oregano Zaatar Crepe", "Tofu Scramble", "Biscoff Crunch Crepe", "Mint Lemonade", "Dubai Strawberry Cup", "Nutella Coffee"]}');
+  assert.strictEqual(r.name, 'Crepe Bistro');
+  assert.strictEqual(r.city, 'Santa Clara');
+  assert.deepStrictEqual(r.dishes, ['Jain Crepe', 'Oregano Zaatar Crepe', 'Tofu Scramble', 'Biscoff Crunch Crepe', 'Mint Lemonade', 'Dubai Strawberry Cup', 'Nutella Coffee']);
 });
 check('non-string name/city and non-array dishes -> all empty', () => {
   const r = parsePhotoReply('{"name": 123, "city": ["London"], "dishes": "soup"}');
@@ -352,10 +358,10 @@ check('nameless list entries dropped, non-array restaurants -> empty', () => {
   assert.strictEqual(r.restaurants[0].name, 'Kin Restaurant');
   assert.deepStrictEqual(parsePhotoReply('{"name": null, "city": null, "dishes": [], "restaurants": "nope"}').restaurants, []);
 });
-check('per-entry dishes capped at 5, notes trimmed and capped', () => {
+check('per-entry dishes capped at 10, notes trimmed and capped', () => {
   const long = 'x'.repeat(250);
-  const r = parsePhotoReply('{"name": null, "city": null, "dishes": [], "restaurants": [{"name": "X", "dishes": ["a", "b", "c", "d", "e", "f"], "notes": "  Jain upon walk-in  "}, {"name": "Y", "dishes": [], "notes": "' + long + '"}]}');
-  assert.deepStrictEqual(r.restaurants[0].dishes, ['a', 'b', 'c', 'd', 'e']);
+  const r = parsePhotoReply('{"name": null, "city": null, "dishes": [], "restaurants": [{"name": "X", "dishes": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"], "notes": "  Jain upon walk-in  "}, {"name": "Y", "dishes": [], "notes": "' + long + '"}]}');
+  assert.deepStrictEqual(r.restaurants[0].dishes, ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
   assert.strictEqual(r.restaurants[0].notes, 'Jain upon walk-in');
   assert.strictEqual(r.restaurants[1].notes.length, 200);
 });

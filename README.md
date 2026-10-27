@@ -359,7 +359,10 @@ storefront, or menu is downscaled in the browser and sent to POST
 /api/read-photo (server.js locally, the Netlify Function hosted),
 where lib/photoRead.js makes ONE more Muse Spark Contributor call -
 the same model, key, and endpoint as the menu judge - and returns
-{ name, city, dishes }. Each new upload clears the name, city, and
+{ name, city, dishes } - dishes are every dish, food, or drink name
+visible anywhere in the photo (menu, ordered-items list, caption,
+signboard), up to 10, and the user removes any they do not want
+(Sam, 2026-10-27). Each new upload clears the name, city, and
 typed dishes first (Sam, 2026-10-25), so a previous photo's values
 never linger; the read then fills only fields that are still empty
 (typing during the read is respected). If even one field was

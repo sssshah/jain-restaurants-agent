@@ -301,3 +301,56 @@ files, so a syntax error fails fast) - no exceptions, even for
 "docs-only-looking" prompt edits. And: prompt strings in
 single-quoted JS must never contain apostrophes; prefer rewording
 over escaping.
+
+---
+
+## 2026-10-27 - Photo read returned no dishes from an Instagram-post screenshot (Crepe Bistro, Santa Clara)
+
+**What happened:** Sam uploaded a screenshot of an Instagram post
+(@thejaintable / @crepesbistro) for Crepe Bistro, Santa Clara. The
+dialog filled the name and city but left dishes empty, even though
+the photo plainly lists 7 ordered items under "What we ordered":
+Jain Crepe, Oregano Zaatar Crepe, Tofu Scramble, Biscoff Crunch
+Crepe, Mint Lemonade, Dubai Strawberry Cup, Nutella Coffee.
+
+**Root cause:** `lib/photoRead.js` told the model dishes exist only
+"if the photo is a menu, otherwise []". An Instagram post is not a
+menu, so the model obeyed and returned []. Proven, not guessed:
+the same screenshot sent to the live endpoint at full resolution
+(1290x2796) and at the dialog's downscaled size (723x1568) both
+returned name + city with dishes []. Resolution and downscaling
+were innocent; the prompt was the cause. A second, quieter limit:
+`parsePhotoReply` capped dishes at 5, so even a perfect read of a
+7-item list would have dropped two.
+
+**Fix (same day, Sam approved with safeguards):**
+- The prompt now asks for every dish, food, or drink name visible
+  ANYWHERE in the photo: menu, ordered-items list, caption, or
+  signboard. Up to 10 names, exactly as shown; [] only when no
+  dish name is visible anywhere. "Do NOT guess" and exact-copy
+  rules unchanged.
+- `parsePhotoReply` caps dishes at 10 (single reads and per-entry
+  list dishes), so a 7-item list survives whole. The notes cap
+  (200) and list cap (30) are unchanged.
+- Separation kept (Sam's rule, 2026-10-27): ONLY `lib/photoRead.js`
+  and its tests changed. `classify.js`, `llmJudge.js`, and
+  `menuFetch.js` were not touched, and nothing on the run path
+  reads the photo read's output - a photo change cannot change a
+  classification.
+
+**Regression tests:** `run-tests.js` - the two cap tests updated
+from 5 to 10, plus a Crepe Bistro replay asserting all 7 ordered
+items survive parsing. The suite covers both sides (classification
++ photo parsing) and requires every lib file, so it must be green
+before commit - the incident #6 safeguard.
+
+**Verification (after deploy):** a live re-upload of the same
+screenshot must return all 7 dishes, and a run-path smoke check
+(dish options + a preview-only lookup, no submit) must still
+answer - both paths checked, not just the fixed one.
+
+**Lesson:** when the instruction says "only if X", the model
+returns nothing for not-X even when the answer is visible. Ask for
+what is visible, everywhere it can appear, and let the human remove
+extras. That is the photo's job (Sam, 2026-10-27): capture the
+dishes; the user edits.
