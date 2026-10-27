@@ -136,6 +136,18 @@ check('post-submit comparison: wrong dietary_type is a mismatch', () => {
   assert.strictEqual(mm.length, 1);
   assert.strictEqual(mm[0].field, 'dietary_type');
 });
+check('post-submit comparison: float-noise coordinates pass (Crepe Bistro + Mallow replays, 2026-10-27)', () => {
+  const intended = { ...goodBase.listing, dietary_type: 'both', latitude: 51.506251299999995, longitude: -121.93841019999999 };
+  const row = { ...intended, latitude: 51.5062513, longitude: -121.9384102 };
+  assert.deepStrictEqual(compareListing(row, intended), []);
+});
+check('post-submit comparison: genuinely different coordinate still mismatches', () => {
+  const intended = { ...goodBase.listing, dietary_type: 'both', latitude: 37.35, longitude: -121.9384102 };
+  const row = { ...intended, longitude: -121.95 };
+  const mm = compareListing(row, intended);
+  assert.strictEqual(mm.length, 1);
+  assert.strictEqual(mm[0].field, 'longitude');
+});
 
 console.log('Duplicate check, fuzzy names (incident #2, 2026-10-24):');
 const { namesMatch } = require('./lib/duplicateCheck');

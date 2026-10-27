@@ -354,3 +354,53 @@ returns nothing for not-X even when the answer is visible. Ask for
 what is visible, everywhere it can appear, and let the human remove
 extras. That is the photo's job (Sam, 2026-10-27): capture the
 dishes; the user edits.
+
+---
+
+## 2026-10-27 - Insert succeeded but the dialog reported a mismatch on longitude float noise (Crepe Bistro, Santa Clara)
+
+**What happened:** Sam submitted Crepe Bistro (Santa Clara)
+through the dialog after the incident #7 fix went live. The insert
+succeeded and the listing went live, but the dialog showed
+"Inserted, but the live row differs from the preview: longitude
+(expected -121.93841019999999, got -121.9384102)" and stayed
+open instead of closing. The two numbers are the same pin: the
+difference is about 1e-14 degrees, pure float-representation noise
+from the Supabase round trip. The same class of noise had appeared
+on Mallow's latitude on 2026-10-25 (51.506251299999995 vs
+51.5062513).
+
+**Root cause:** `compareListing` in `lib/evaluate.js` compared
+every field by exact string equality. A float that survives a
+database round trip is routinely re-spelled in the last digits, so
+an exact comparison flags a correct row as different. The dialog's
+close-after-insert fires only on a clean `submitted` outcome, so
+the noise-level mismatch also left the dialog open with an
+error-styled banner for a successful insert.
+
+**Fix (same day, Sam approved):**
+- `compareListing` now compares `latitude` and `longitude`
+  numerically with a 1e-6 degree tolerance (about 11 cm) when both
+  sides parse as finite numbers; anything further apart still
+  mismatches. All other fields keep exact string comparison, and
+  non-numeric coordinate values fall back to the string check.
+- Sam's ruling (2026-10-27): approximate map locations are fine;
+  exact coordinate precision is not needed. No admin fix was
+  needed on the live row - the stored pin is the same place.
+
+**Regression tests:** `run-tests.js` - a float-noise replay
+combining the Crepe Bistro longitude and Mallow latitude numbers
+must return no mismatches, and a genuinely different longitude
+must still report exactly one mismatch on `longitude`.
+
+**Verification (after deploy):** the function must load cleanly
+(dish-options + a preview-only run, no submit). A live submit
+comparison is covered by the unit tests; the next real add should
+come back `submitted`, not `submitted-mismatch`, when only float
+noise differs.
+
+**Lesson:** never compare floats for exact equality across a
+storage round trip. The comparison's job is to catch a wrong row,
+not a re-spelled number - tolerance belongs in the checker, and
+the tolerance must be small enough that a genuinely different
+place still fails.
