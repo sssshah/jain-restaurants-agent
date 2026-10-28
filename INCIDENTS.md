@@ -453,3 +453,103 @@ tolerance live), and the directory must be back to 214.
 collision waiting for the first re-submit. Storage writes that
 must always succeed need a unique name per write; never rely on
 overwrite permission you have not verified exists.
+
+---
+
+## 2026-10-28 - Sforno: a real menu page the fetcher never requested + the Mixed default (incident #10)
+
+**What happened:** Sam ran Sforno Pizzeria Napoletana (514 Octavia
+St, San Francisco) through the dialog. Lookup, phone, website, and
+photo were all correct and the duplicate check was clear, but the
+run stopped: "Menu: none - No menu found on the website",
+classification UNKNOWN, Evaluate failed unknown-classification,
+Submit disabled. Sam pushed back: the place is real, the website
+has a menu, and the burger-style navigation shows it - so why was
+nothing found? He was right; the stop was the designed behavior
+for "no menu", but "no menu" itself was wrong.
+
+**Root cause:** `fetchMenu` in `lib/menuFetch.js` only follows
+menu links found as static `href`s in the homepage HTML. Sforno's
+site is Wix: its navigation (including the burger menu) is built
+by JavaScript in the browser. The raw homepage file (634 KB)
+contains zero menu-path links - the fetcher's whole universe of
+links is the homepage itself, a Toast ordering link, Maps, and
+social links. Verified from the bytes: the string `/menu` appears
+exactly once in the file, as a JSON page-map key (`".\/menu"`)
+- not an href, not an anchor - so neither path matching nor
+anchor-text matching could ever see it. The stripped homepage
+text is 519 characters with zero food-word hits, so the homepage
+fallback failed too. Meanwhile `https://www.sfornosf.com/menu`
+returns HTTP 200 with 2,645 characters of real menu text (Pizze,
+Desserts, Drinks) containing prosciutto, mortadella, guanciale,
+nduja, tuna, and sausage - evidence that would classify Mixed
+with high confidence. The menu existed; the fetcher never asked
+for it, because it never tries the conventional address itself.
+
+**Fixes (same day, Sam approved the probe + the default):**
+- `lib/menuFetch.js` gains `menuProbeUrls` (pure, unit-tested):
+  the site origin + `/menu` and `/menus`. After the link loop
+  finds nothing, `fetchMenu` probes those two addresses under
+  the SAME gates as a linked candidate (real HTML page, over 400
+  characters, looks like a menu), before falling back to the
+  homepage text. Link-first order is unchanged, so sites that
+  work today behave exactly as before.
+- `lib/classify.js` gains the Mixed default (Sam's rule,
+  2026-10-28): when there is NO menu text at all (no website,
+  fetch failed, or nothing found even after probing) and no
+  vegan signal in the name/type, classification returns Mixed
+  (`both`) at LOW confidence with the default recorded in the
+  evidence, instead of UNKNOWN. The default does NOT apply
+  when menu text exists but settles nothing - that stays UNKNOWN
+  for the human (after the bounded LLM-judge chance in
+  `runAgent.js`). The vegan name/type rule still wins when it
+  applies. Anchor-text link matching was considered in the same
+  discussion and deliberately NOT built: it cannot see
+  JavaScript-built navigation either, and Sam approved the
+  probe only.
+- `lib/evaluate.js` accepts the default as a recorded basis:
+  the mixed-no-meat-evidence check now passes when the evidence
+  carries meat evidence OR the default marker; the evaluator
+  reads the basis from the evidence, it does not re-run the
+  classifier. A new `defaulted-mixed` warning fires on low
+  confidence, so the run log (the small grey lines in the
+  dialog) shows "Classification defaulted to Mixed - no menu
+  text could be read" next to the classification evidence line
+  that records the default. The grey text is the dialog session
+  log only - the stored row itself carries `both` with no marker,
+  so the default is visible in `runs.log.jsonl`, not on the card.
+- `RULES.md` updated: classification rule 5 is now the default,
+  rule 6 is UNKNOWN-for-inconclusive-text, and the menu-lookup
+  section names the probe.
+- Separation kept (Sam's rule, 2026-10-27): only `menuFetch.js`,
+  `classify.js`, `evaluate.js`, their tests, `RULES.md`, and this
+  file changed. `photoRead.js` and the dialog photo path were not
+  touched; classification still never reads photo output.
+
+**Regression tests:** `run-tests.js` - the probe-URL helper
+(normal base, base with path/query, bad base), the default
+(no text -> `both`/low/needsHuman false + default marker),
+vegan-still-wins, inconclusive-text-still-UNKNOWN, the Sforno
+menu-words replay (`both`/high), and the defaulted-Mixed
+evaluation (warn, `defaulted-mixed`, no
+`mixed-no-meat-evidence`). The old "no menu -> UNKNOWN" test was
+updated to the new rule. Suite total 68 -> 74.
+
+**Verification (after deploy):** re-run Sforno in the dialog -
+the probe must find `/menu`, classify Mixed on the meat words
+(high confidence, evidence-backed, NOT the default), and Submit
+must be enabled. Separately, a preview-only run on a place with
+no readable menu must show the default + the grey-log note and
+stay submittable. Post-deploy, verify BOTH paths live (a photo
+read + a run-path smoke check); Netlify rollback (publish
+previous deploy) is the fallback.
+
+**Lesson:** a fetcher that cannot execute JavaScript cannot see
+JavaScript-built navigation, no matter how carefully it reads
+links - the fix is to ask for the conventional address
+directly, not to parse the framework's internals. And a default
+that changes what goes live must be recorded where a human will
+see it (evidence + log), never applied silently: the next
+person reading the row should be able to tell a defaulted Mixed
+from an evidenced one, and the audit log is where that
+distinction lives.

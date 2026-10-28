@@ -4,7 +4,7 @@
 // it has been undone somewhere - do not submit restaurants until green.
 
 const assert = require('node:assert');
-const { isMenuPath, looksLikeMenu } = require('./lib/menuFetch');
+const { isMenuPath, looksLikeMenu, menuProbeUrls } = require('./lib/menuFetch');
 const { classify } = require('./lib/classify');
 
 let passed = 0, failed = 0;
@@ -42,10 +42,12 @@ check('vegan in the name -> Vegan', () => {
   const r = classify({ name: 'Vegan Bowl', primaryType: 'Restaurant', types: [], menuText: '' });
   assert.strictEqual(r.dietaryType, 'vegan');
 });
-check('no menu, no signals -> UNKNOWN (human decides)', () => {
+check('no menu text at all -> Mixed by DEFAULT, low confidence (rule set 2026-10-28)', () => {
   const r = classify({ name: 'Mystery Place', primaryType: 'Restaurant', types: [], menuText: '' });
-  assert.strictEqual(r.dietaryType, null);
-  assert.strictEqual(r.needsHuman, true);
+  assert.strictEqual(r.dietaryType, 'both');
+  assert.strictEqual(r.confidence, 'low');
+  assert.strictEqual(r.needsHuman, false);
+  assert.ok(/defaulted to mixed/i.test(r.evidence.join(' ')));
 });
 
 console.log('Chain notes (Sam, simplified 2026-10-23): one-line signal, never addresses');
@@ -147,6 +149,38 @@ check('post-submit comparison: genuinely different coordinate still mismatches',
   const mm = compareListing(row, intended);
   assert.strictEqual(mm.length, 1);
   assert.strictEqual(mm[0].field, 'longitude');
+});
+
+console.log('Menu probe + Mixed default (incident #10, 2026-10-28, Sforno):');
+check('probe URLs are the site origin + /menu and /menus', () => {
+  assert.deepStrictEqual(menuProbeUrls('https://www.sfornosf.com/'), ['https://www.sfornosf.com/menu', 'https://www.sfornosf.com/menus']);
+  assert.deepStrictEqual(menuProbeUrls('https://example.com/home?x=1'), ['https://example.com/menu', 'https://example.com/menus']);
+});
+check('probe URLs: bad base -> no probes', () => {
+  assert.deepStrictEqual(menuProbeUrls('not a url'), []);
+});
+check('vegan in the name still wins over the default (no menu text)', () => {
+  const r = classify({ name: 'Vegan Bowl', primaryType: 'Restaurant', types: [], menuText: '' });
+  assert.strictEqual(r.dietaryType, 'vegan');
+});
+check('menu text that settles nothing -> UNKNOWN (human decides)', () => {
+  const r = classify({ name: 'Mystery Place', primaryType: 'Restaurant', types: [], menuText: 'Welcome to our restaurant. We serve food daily, come and enjoy.' });
+  assert.strictEqual(r.dietaryType, null);
+  assert.strictEqual(r.needsHuman, true);
+});
+check('Sforno menu words -> Mixed (both), high confidence', () => {
+  const r = classify({ name: 'Sforno Pizzeria Napoletana', primaryType: 'Pizza Restaurant', types: [], menuText: 'Pizze Regina Margherita, prosciutto, mortadella, guanciale, nduja, tuna pizza, sausage. Desserts, drinks.' });
+  assert.strictEqual(r.dietaryType, 'both');
+  assert.strictEqual(r.confidence, 'high');
+});
+check('defaulted Mixed passes evaluation with a warning, no fail', () => {
+  const r = evaluateListing({ ...goodBase,
+    classification: { dietaryType: 'both', confidence: 'low', evidence: ['No menu text could be read - defaulted to Mixed (rule set 2026-10-28)'] },
+    menu: { status: 'none', menuUrl: null, menuText: '' } });
+  assert.strictEqual(r.verdict, 'warn');
+  assert.ok(r.issues.every(i => i.severity === 'warn'));
+  assert.ok(r.issues.some(i => i.code === 'defaulted-mixed'));
+  assert.ok(!r.issues.some(i => i.code === 'mixed-no-meat-evidence'));
 });
 
 console.log('Duplicate check, fuzzy names (incident #2, 2026-10-24):');

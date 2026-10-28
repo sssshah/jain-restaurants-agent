@@ -23,7 +23,7 @@ Input (v1): one restaurant at a time - name, city, Jain dishes (CLI)
 ## Field Rules (non-negotiable)
 
 - Rating: defaults to 4 for every listing. Different only if Sam specifies it for that place.
-- Country: exactly "USA" - never "United States" (that fragments the country filter).
+- Country: for US places, exactly "USA" - never "United States" (that fragments the country filter - it briefly created a phantom 10th country with Planta). Other countries are normal: use the country from the place's own address (the directory spans many countries and people will add places worldwide). Agent v1 code hardcodes "USA" - international derivation is a Phase 2 item, see README.
 - Coordinates matter: they come from the place data / full place URL. Always use the FULL place URL with @lat,lng and !3d / !4d data - never a shortened share link.
 - Recommended Dishes: REQUIRED, never empty. Semicolon-separated. If the place has a full Jain menu, use exactly: "Full Jain Menu available"
 - Dishes options - DISPLAYED to the submitter at insert time (Sam's rule, 2026-10-23). In the CLI they print as a menu; in the later public web form they will be radio buttons + a free-text box for real dishes. A submitter who doesn't list dishes picks one:
@@ -46,12 +46,14 @@ Jain = no meat, no fish/chicken, AND no root vegetables (onion, garlic, potato, 
 ## Menu Lookup + Classification - Sam's simplified rules (2026-10-23, supersedes the LLM-reads-everything idea)
 
 Menus almost NEVER say "Jain". Do NOT waste LLM cycles figuring out which dishes could be made Jain - dishes come from the PERSON adding the place (typed, or dishes options 1/2/3).
+Menu lookup order (lib/menuFetch.js): follow menu links found in the homepage HTML first; if none qualifies, probe the site's own /menu, then /menus, under the same checks (real HTML page, over 400 characters, looks like a menu) - this reaches JavaScript-rendered navigation (e.g. Wix), where no menu link exists in the raw HTML. Only then fall back to the homepage text itself.
 Classification is mostly a CODE job (lib/classify.js), in this order:
 1. Menu mentions "Jain" (a Jain menu, or a Jain legend/symbol on the menu) -> flag it. That is the rare easy win.
 2. "Vegan" in the restaurant NAME or in its Google place type -> Vegan. (Sam: most vegan places say so in their name; Google type like "Vegan restaurant" counts too.)
 3. Any fish / chicken / meat (full word list in classify.js: pork, beef, lamb, shrimp, seafood, etc.) anywhere in the menu -> Mixed, flat rule.
 4. Real menu, no meat words, vegetarian signals present -> Pure Veg proposal (medium confidence).
-5. Nothing settles it -> UNKNOWN = exception stop, human decides.
+5. No menu text at all (no website, fetch failed, or no menu found even after probing /menu and /menus) -> Mixed by DEFAULT (Sam's rule, 2026-10-28, incident #10): the listing goes in as Mixed with low confidence, and the run log says the menu could not be read so it defaulted to Mixed. The vegan name/type rule above still wins when it applies.
+6. Menu text exists but settles nothing -> UNKNOWN = exception stop, human decides.
 LLM role: RARE, not routine. Reserved for a menu that plain text scanning can't handle (scanned-image menu, awkward PDF). Routine classification uses zero LLM calls.
 
 ## EXCEPTION STOPS - Halt and Ask Sam (do not guess, do not submit)
@@ -62,7 +64,7 @@ LLM role: RARE, not routine. Reserved for a menu that plain text scanning can't 
    Example: Su Xing House, Philadelphia - now Meet Harbin / Chengdu Center City. Skipped.
 3. The place is marked permanently closed.
    Example: Both Planta Miami locations - permanently closed. Skipped.
-4. Dietary classification the facts don't settle.
+4. Dietary classification the facts don't settle (menu text exists but is inconclusive - no menu text at all now defaults to Mixed, see classification rule 5 above).
 
 Also stop on: duplicate found in the directory.
 
